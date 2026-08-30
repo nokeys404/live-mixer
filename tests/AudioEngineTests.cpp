@@ -100,7 +100,7 @@ void testDeviceConfigurationValidation() {
 
 void testRealtimePassthroughAndSilence() {
     std::cout << "Running testRealtimePassthroughAndSilence...\n";
-    auto devMgr = createAudioDeviceManager();
+    std::shared_ptr<IAudioDeviceManager> devMgr = createAudioDeviceManager();
     auto engine = std::make_unique<AudioEngine>(devMgr);
 
     AudioConfig cfg;
@@ -160,7 +160,7 @@ void testRealtimePassthroughAndSilence() {
 
 void testDeviceDisconnectHandling() {
     std::cout << "Running testDeviceDisconnectHandling...\n";
-    auto devMgr = createAudioDeviceManager();
+    std::shared_ptr<IAudioDeviceManager> devMgr = createAudioDeviceManager();
     auto engine = std::make_unique<AudioEngine>(devMgr);
 
     AudioConfig cfg;
