@@ -14,11 +14,38 @@ else()
 endif()
 
 # ==============================================================================
-# ASIO SDK Configuration Note:
-# On Windows, Steinberg ASIO SDK 2.3+ can be supplied by setting:
-#   cmake -B build -DJUCE_ASIO_SDK_PATH="C:/path/to/asiosdk"
-# If not provided, JUCE searches standard system paths.
+# ASIO SDK Configuration
+# Supply the root path of the Steinberg ASIO SDK via:
+#   -DLIVE_MIXER_ASIO_SDK_PATH="D:/NOKI/PROJECT VIRTUAL MIXER/asio-main/asio-main"
 # ==============================================================================
+set(LIVE_MIXER_ASIO_SDK_PATH "" CACHE PATH "Path to the Steinberg ASIO SDK root folder containing 'common/iasiodrv.h'")
+
+set(LIVE_MIXER_ENABLE_ASIO ON)
+set(LIVE_MIXER_ASIO_INCLUDE_DIRS "")
+
+if (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    if (LIVE_MIXER_ASIO_SDK_PATH)
+        # Normalize path
+        file(TO_CMAKE_PATH "${LIVE_MIXER_ASIO_SDK_PATH}" _ASIO_SDK_NORM_PATH)
+        set(ASIO_HEADER_PROBE "${_ASIO_SDK_NORM_PATH}/common/iasiodrv.h")
+        
+        if (EXISTS "${ASIO_HEADER_PROBE}")
+            message(STATUS "Found Steinberg ASIO SDK at: ${_ASIO_SDK_NORM_PATH}")
+            set(LIVE_MIXER_ASIO_INCLUDE_DIRS
+                "${_ASIO_SDK_NORM_PATH}/common"
+                "${_ASIO_SDK_NORM_PATH}/host"
+                "${_ASIO_SDK_NORM_PATH}/host/pc"
+            )
+        else()
+            message(FATAL_ERROR
+                "LIVE_MIXER_ASIO_SDK_PATH was set to '${LIVE_MIXER_ASIO_SDK_PATH}', but '${ASIO_HEADER_PROBE}' was not found. "
+                "Please verify that LIVE_MIXER_ASIO_SDK_PATH points to the root directory containing 'common/iasiodrv.h'."
+            )
+        endif()
+    else()
+        message(STATUS "LIVE_MIXER_ASIO_SDK_PATH is not set. Looking for default system/JUCE ASIO SDK paths.")
+    endif()
+endif()
 
 # ==============================================================================
 # JUCE Setup
@@ -76,16 +103,24 @@ target_sources(LiveMixer PRIVATE
 
 target_include_directories(LiveMixer PRIVATE
     src
+    ${LIVE_MIXER_ASIO_INCLUDE_DIRS}
 )
 
 target_compile_definitions(LiveMixer PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_ASIO=1
+    JUCE_ASIO_USE_EXTERNAL_SDK=1
     JUCE_WASAPI=1
     JUCE_WASAPI_EXCLUSIVE=1
     JUCE_DIRECTSOUND=0
 )
+
+# Also ensure juce::juce_audio_devices interface includes the ASIO headers if the target is available
+if (TARGET juce_audio_devices AND LIVE_MIXER_ASIO_INCLUDE_DIRS)
+    target_include_directories(juce_audio_devices INTERFACE ${LIVE_MIXER_ASIO_INCLUDE_DIRS})
+    target_compile_definitions(juce_audio_devices INTERFACE JUCE_ASIO=1 JUCE_ASIO_USE_EXTERNAL_SDK=1)
+endif()
 
 target_link_libraries(LiveMixer PRIVATE
     juce::juce_audio_basics
