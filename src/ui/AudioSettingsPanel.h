@@ -63,6 +63,9 @@ private:
     juce::Label m_audioStatusTitle;
     juce::Label m_audioStatusValue;
 
+    juce::Label m_errorTitle;
+    juce::Label m_errorValue;
+
     juce::Label m_bufferDurationTitle;
     juce::Label m_bufferDurationValue;
 

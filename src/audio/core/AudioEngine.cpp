@@ -28,6 +28,7 @@ AudioEngine::~AudioEngine() {
 bool AudioEngine::initialize(const AudioConfig& config) {
     setState(AudioState::Initializing);
     m_config = config;
+    m_lastErrorMessage.clear();
 
     if (!m_deviceManager) {
         m_lastErrorMessage = "Device manager pointer is null.";
@@ -42,7 +43,7 @@ bool AudioEngine::initialize(const AudioConfig& config) {
     }
 
     if (!m_deviceManager->selectDriver(m_config.driverType)) {
-        m_lastErrorMessage = "Failed to select driver type.";
+        m_lastErrorMessage = "Failed to select driver type: " + driverTypeToString(m_config.driverType);
         setState(AudioState::Error);
         return false;
     }
@@ -52,13 +53,26 @@ bool AudioEngine::initialize(const AudioConfig& config) {
     }
 
     if (!m_deviceManager->openDevice(m_config)) {
-        m_lastErrorMessage = "Failed to open requested audio device.";
+        const std::string devErr = m_deviceManager->getLastError();
+        if (!devErr.empty()) {
+            m_lastErrorMessage = devErr;
+        } else {
+            m_lastErrorMessage = "Failed to open requested audio device '" + m_config.deviceName + "'.";
+        }
         setState(AudioState::Error);
         return false;
     }
 
+    // Sync actual active parameters from opened hardware device
+    m_config.deviceName = m_deviceManager->getCurrentDeviceName();
+    m_config.inputChannelCount = m_deviceManager->getInputChannelCount();
+    m_config.outputChannelCount = m_deviceManager->getOutputChannelCount();
+    m_config.sampleRate = m_deviceManager->getCurrentSampleRate();
+    m_config.bufferSize = m_deviceManager->getCurrentBufferSize();
+
     m_metrics.setConfig(m_config.sampleRate, m_config.bufferSize);
     updateLatencies();
+    m_lastErrorMessage.clear();
     setState(AudioState::Ready);
     return true;
 }
@@ -117,6 +131,16 @@ AudioState AudioEngine::getState() const noexcept {
 
 AudioMetricsSnapshot AudioEngine::getMetrics() const noexcept {
     return m_metrics.getSnapshot();
+}
+
+std::string AudioEngine::getLastError() const {
+    if (!m_lastErrorMessage.empty()) {
+        return m_lastErrorMessage;
+    }
+    if (m_deviceManager) {
+        return m_deviceManager->getLastError();
+    }
+    return {};
 }
 
 void AudioEngine::setState(AudioState newState) noexcept {

@@ -177,6 +177,45 @@ void testDeviceDisconnectHandling() {
     TEST_ASSERT(engine->getState() == AudioState::Error, "Engine safely transitions to Error upon device disconnect without crashing");
 }
 
+void testErrorDiagnostics() {
+    std::cout << "Running testErrorDiagnostics...\n";
+    std::shared_ptr<IAudioDeviceManager> devMgr = createAudioDeviceManager();
+    auto engine = std::make_unique<AudioEngine>(devMgr);
+
+    AudioConfig invalidCfg;
+    invalidCfg.driverType = DriverType::ASIO;
+    invalidCfg.sampleRate = 0.0; // Invalid configuration
+
+    bool initResult = engine->initialize(invalidCfg);
+    TEST_ASSERT(!initResult, "Initialization fails on invalid config");
+    TEST_ASSERT(engine->getState() == AudioState::Error, "Engine state is Error on initialization failure");
+    TEST_ASSERT(!engine->getLastError().empty(), "Error message is captured and non-empty");
+}
+
+void testExactErrorStringPreservation() {
+    std::cout << "Running testExactErrorStringPreservation...\n";
+    std::shared_ptr<IAudioDeviceManager> devMgr = createAudioDeviceManager();
+    auto engine = std::make_unique<AudioEngine>(devMgr);
+
+    AudioConfig validCfg;
+    validCfg.driverType = DriverType::ASIO;
+    validCfg.sampleRate = 48000.0;
+    validCfg.bufferSize = 128;
+    validCfg.inputChannelCount = 2;
+    validCfg.outputChannelCount = 2;
+
+    bool initResult = engine->initialize(validCfg);
+    TEST_ASSERT(initResult, "Engine successfully initializes with valid config");
+    TEST_ASSERT(engine->getLastError().empty(), "Error string is empty on clean initialization");
+
+    // Simulate an explicit error notification from hardware listener
+    const std::string simulatedDriverError = "ASIO initialization failed: ASIO TCH DICE USB Platform driver not responding";
+    engine->onAudioDeviceError(simulatedDriverError);
+
+    TEST_ASSERT(engine->getState() == AudioState::Error, "Engine transitioned to Error state upon device error");
+    TEST_ASSERT(engine->getLastError() == simulatedDriverError, "Exact device driver error string preserved in AudioEngine");
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << "LIVE MIXER V0.1 FOUNDATION TEST SUITE\n";
@@ -188,6 +227,8 @@ int main() {
     testDeviceConfigurationValidation();
     testRealtimePassthroughAndSilence();
     testDeviceDisconnectHandling();
+    testErrorDiagnostics();
+    testExactErrorStringPreservation();
 
     std::cout << "\n========================================\n";
     std::cout << "TEST RESULTS: " << g_testsPassed << " passed, " << g_testsFailed << " failed.\n";

@@ -54,6 +54,19 @@ AudioSettingsPanel::AudioSettingsPanel(std::shared_ptr<audio::AudioEngine> engin
     m_audioStatusValue.setText("● READY", juce::dontSendNotification);
     addAndMakeVisible(m_audioStatusValue);
 
+    // Error Message Diagnostics - Always visible permanent section
+    m_errorTitle.setText("Device Error:", juce::dontSendNotification);
+    m_errorTitle.setFont(juce::Font(13.0f, juce::Font::bold));
+    addAndMakeVisible(m_errorTitle);
+
+    m_errorValue.setText("None (Device operational)", juce::dontSendNotification);
+    m_errorValue.setFont(juce::Font(12.0f, juce::Font::plain));
+    m_errorValue.setJustificationType(juce::Justification::topLeft);
+    m_errorValue.setColour(juce::Label::backgroundColourId, juce::Colour(0x1a22c55e));
+    m_errorValue.setColour(juce::Label::outlineColourId, juce::Colour(0x3322c55e));
+    m_errorValue.setColour(juce::Label::textColourId, juce::Colour(0xff86efac));
+    addAndMakeVisible(m_errorValue);
+
     // Buffer Duration vs Latency Telemetry
     m_bufferDurationTitle.setText("Buffer Duration:", juce::dontSendNotification);
     addAndMakeVisible(m_bufferDurationTitle);
@@ -119,16 +132,16 @@ void AudioSettingsPanel::paint(juce::Graphics& g) {
 }
 
 void AudioSettingsPanel::resized() {
-    auto bounds = getLocalBounds().reduced(20);
-    const int itemHeight = 30;
-    const int spacing = 8;
+    auto bounds = getLocalBounds().reduced(16);
+    const int itemHeight = 28;
+    const int spacing = 6;
 
-    m_titleLabel.setBounds(bounds.removeFromTop(36));
+    m_titleLabel.setBounds(bounds.removeFromTop(32));
     bounds.removeFromTop(spacing);
 
     auto layoutRow = [&](juce::Label& label, juce::Component& control) {
         auto row = bounds.removeFromTop(itemHeight);
-        label.setBounds(row.removeFromLeft(150));
+        label.setBounds(row.removeFromLeft(140));
         control.setBounds(row);
         bounds.removeFromTop(spacing);
     };
@@ -142,21 +155,30 @@ void AudioSettingsPanel::resized() {
     layoutRow(m_outputChannelsTitle, m_outputChannelsValue);
     layoutRow(m_audioStatusTitle, m_audioStatusValue);
 
+    // Dedicated permanent diagnostic section directly below Audio Status
+    auto errTitleRow = bounds.removeFromTop(20);
+    m_errorTitle.setBounds(errTitleRow);
+    bounds.removeFromTop(2);
+
+    auto errValRow = bounds.removeFromTop(52);
+    m_errorValue.setBounds(errValRow);
+    bounds.removeFromTop(spacing);
+
     layoutRow(m_bufferDurationTitle, m_bufferDurationValue);
     layoutRow(m_inputLatencyTitle, m_inputLatencyValue);
     layoutRow(m_outputLatencyTitle, m_outputLatencyValue);
     layoutRow(m_processingTitle, m_processingValue);
     layoutRow(m_xrunsTitle, m_xrunsValue);
 
-    bounds.removeFromTop(8);
-    auto buttonRow = bounds.removeFromTop(38);
+    bounds.removeFromTop(6);
+    auto buttonRow = bounds.removeFromTop(36);
     const int buttonWidth = (buttonRow.getWidth() - 10) / 2;
     m_startAudioButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
     buttonRow.removeFromLeft(10);
     m_stopAudioButton.setBounds(buttonRow);
 
     bounds.removeFromTop(spacing);
-    m_asioControlPanelButton.setBounds(bounds.removeFromTop(34));
+    m_asioControlPanelButton.setBounds(bounds.removeFromTop(32));
 }
 
 void AudioSettingsPanel::refreshDriverList() {
@@ -269,27 +291,57 @@ void AudioSettingsPanel::updateTelemetryUI() {
         m_audioStatusValue.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa)); // Gray
     }
 
-    // Format Channels & ASIO Control Panel state
-    auto devMgr = m_engine->getDeviceManager();
-    if (devMgr) {
-        m_inputChannelsValue.setText(std::to_string(devMgr->getInputChannelCount()), juce::dontSendNotification);
-        m_outputChannelsValue.setText(std::to_string(devMgr->getOutputChannelCount()), juce::dontSendNotification);
-        m_asioControlPanelButton.setEnabled(devMgr->hasControlPanel());
+    // Capture & Display Real Error Message
+    const std::string err = m_engine->getLastError();
+    const bool isErrorState = (state == audio::AudioState::Error) || !err.empty();
+
+    if (isErrorState) {
+        m_errorTitle.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
+        const std::string displayErr = "Unable to open audio device: " + (err.empty() ? std::string("driver returned failure or device closed") : err);
+        m_errorValue.setText(displayErr, juce::dontSendNotification);
+        m_errorValue.setColour(juce::Label::backgroundColourId, juce::Colour(0x33ef4444));
+        m_errorValue.setColour(juce::Label::outlineColourId, juce::Colour(0xffef4444));
+        m_errorValue.setColour(juce::Label::textColourId, juce::Colour(0xfffecaca));
+
+        // When device has not opened successfully, display "--" instead of pretending 0 is actual topology
+        m_inputChannelsValue.setText("--", juce::dontSendNotification);
+        m_outputChannelsValue.setText("--", juce::dontSendNotification);
+        m_inputLatencyValue.setText("--", juce::dontSendNotification);
+        m_outputLatencyValue.setText("--", juce::dontSendNotification);
+        m_processingValue.setText("--", juce::dontSendNotification);
+    } else {
+        m_errorTitle.setColour(juce::Label::textColourId, juce::Colour(0xff71717a));
+        m_errorValue.setText("None (Device operational)", juce::dontSendNotification);
+        m_errorValue.setColour(juce::Label::backgroundColourId, juce::Colour(0x1a22c55e));
+        m_errorValue.setColour(juce::Label::outlineColourId, juce::Colour(0x3322c55e));
+        m_errorValue.setColour(juce::Label::textColourId, juce::Colour(0xff86efac));
+
+        auto devMgr = m_engine->getDeviceManager();
+        if (devMgr) {
+            m_inputChannelsValue.setText(std::to_string(devMgr->getInputChannelCount()), juce::dontSendNotification);
+            m_outputChannelsValue.setText(std::to_string(devMgr->getOutputChannelCount()), juce::dontSendNotification);
+        }
+
+        std::ostringstream inLatStream, outLatStream, procStream;
+        inLatStream << std::fixed << std::setprecision(2) << metrics.inputLatencyMs << " ms";
+        outLatStream << std::fixed << std::setprecision(2) << metrics.outputLatencyMs << " ms";
+        procStream << std::fixed << std::setprecision(2) << metrics.processingTimeMs << " ms";
+
+        m_inputLatencyValue.setText(inLatStream.str(), juce::dontSendNotification);
+        m_outputLatencyValue.setText(outLatStream.str(), juce::dontSendNotification);
+        m_processingValue.setText(procStream.str(), juce::dontSendNotification);
     }
 
-    // Format Metrics: Clearly separate Buffer Duration vs Hardware Latency
+    // Format Metrics: Buffer Duration
     const double bufferDurationMs = m_engine->getCurrentConfig().getBufferDurationMs();
-    std::ostringstream bufDurStream, inLatStream, outLatStream, procStream;
+    std::ostringstream bufDurStream;
     bufDurStream << std::fixed << std::setprecision(2) << bufferDurationMs << " ms";
-    inLatStream << std::fixed << std::setprecision(2) << metrics.inputLatencyMs << " ms";
-    outLatStream << std::fixed << std::setprecision(2) << metrics.outputLatencyMs << " ms";
-    procStream << std::fixed << std::setprecision(2) << metrics.processingTimeMs << " ms";
-
     m_bufferDurationValue.setText(bufDurStream.str(), juce::dontSendNotification);
-    m_inputLatencyValue.setText(inLatStream.str(), juce::dontSendNotification);
-    m_outputLatencyValue.setText(outLatStream.str(), juce::dontSendNotification);
-    m_processingValue.setText(procStream.str(), juce::dontSendNotification);
     m_xrunsValue.setText(std::to_string(metrics.xrunCount), juce::dontSendNotification);
+
+    // Format ASIO Control Panel state - Enabled for ASIO drivers even on failure
+    auto devMgr = m_engine->getDeviceManager();
+    m_asioControlPanelButton.setEnabled(devMgr ? devMgr->hasControlPanel() : false);
 
     // Update button states
     m_startAudioButton.setEnabled(state == audio::AudioState::Ready || state == audio::AudioState::Stopping);

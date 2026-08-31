@@ -95,6 +95,9 @@ public:
     virtual bool hasControlPanel() const noexcept = 0;
     virtual bool openControlPanel() = 0;
 
+    // Errors & Diagnostics
+    virtual std::string getLastError() const = 0;
+
     // Listeners for hotplug/disconnect notifications
     virtual void addListener(IAudioDeviceListener* listener) = 0;
     virtual void removeListener(IAudioDeviceListener* listener) = 0;
