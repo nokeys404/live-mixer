@@ -1,4 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Ensure modern MSVC runtime library selection (CMP0091)
+if (POLICY CMP0091)
+    cmake_policy(SET CMP0091 NEW)
+endif()
+
+# Configure consistent dynamic MSVC runtime (/MDd in Debug, /MD in Release)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC runtime library" FORCE)
+
 project(LiveMixer VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -67,6 +76,7 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_gui_app(LiveMixer
     PRODUCT_NAME "Live Mixer"
     COMPANY_NAME "LiveMixer Audio"
+    BUNDLE_ID "com.nokeys.livemixer"
     VERSION 0.1.0
 )
 
