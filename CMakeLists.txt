@@ -8,19 +8,11 @@ endif()
 # Configure consistent dynamic MSVC runtime (/MDd in Debug, /MD in Release)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC runtime library" FORCE)
 
-project(LiveMixer VERSION 0.1.0 LANGUAGES CXX)
+project(LiveMixer VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-
-# Portable compiler flags
-if (MSVC)
-    add_compile_options(/W4 /WX- /permissive- /Zc:preprocessor /EHsc)
-    add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS)
-else()
-    add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
 
 # ==============================================================================
 # ASIO SDK Configuration
@@ -117,6 +109,9 @@ target_include_directories(LiveMixer PRIVATE
 )
 
 target_compile_definitions(LiveMixer PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_ASIO=1
@@ -124,6 +119,15 @@ target_compile_definitions(LiveMixer PRIVATE
     JUCE_WASAPI=1
     JUCE_WASAPI_EXCLUSIVE=1
     JUCE_DIRECTSOUND=0
+)
+
+target_compile_options(LiveMixer PRIVATE
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/permissive-;/EHsc>
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic>
+)
+
+set_target_properties(LiveMixer PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
 )
 
 # Also ensure juce::juce_audio_devices interface includes the ASIO headers if the target is available
