@@ -54,18 +54,20 @@ AudioSettingsPanel::AudioSettingsPanel(std::shared_ptr<audio::AudioEngine> engin
     m_audioStatusValue.setText("● READY", juce::dontSendNotification);
     addAndMakeVisible(m_audioStatusValue);
 
-    // Error Message Diagnostics - Always visible permanent section
-    m_errorTitle.setText("Device Error:", juce::dontSendNotification);
-    m_errorTitle.setFont(juce::Font(13.0f, juce::Font::bold));
-    addAndMakeVisible(m_errorTitle);
+    // Diagnostic Box - Always visible permanent section
+    m_diagTitle.setText("Device Diagnostics:", juce::dontSendNotification);
+    m_diagTitle.setFont(juce::Font(13.0f, juce::Font::bold));
+    addAndMakeVisible(m_diagTitle);
 
-    m_errorValue.setText("None (Device operational)", juce::dontSendNotification);
-    m_errorValue.setFont(juce::Font(12.0f, juce::Font::plain));
-    m_errorValue.setJustificationType(juce::Justification::topLeft);
-    m_errorValue.setColour(juce::Label::backgroundColourId, juce::Colour(0x1a22c55e));
-    m_errorValue.setColour(juce::Label::outlineColourId, juce::Colour(0x3322c55e));
-    m_errorValue.setColour(juce::Label::textColourId, juce::Colour(0xff86efac));
-    addAndMakeVisible(m_errorValue);
+    m_diagTextEditor.setMultiLine(true);
+    m_diagTextEditor.setReadOnly(true);
+    m_diagTextEditor.setCaretVisible(false);
+    m_diagTextEditor.setScrollbarsShown(true);
+    m_diagTextEditor.setFont(juce::Font(juce::Font::getDefaultMonospacedFontName(), 11.5f, juce::Font::plain));
+    m_diagTextEditor.setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xff121214));
+    m_diagTextEditor.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff27272a));
+    m_diagTextEditor.setColour(juce::TextEditor::textColourId, juce::Colour(0xffe4e4e7));
+    addAndMakeVisible(m_diagTextEditor);
 
     // Buffer Duration vs Latency Telemetry
     m_bufferDurationTitle.setText("Buffer Duration:", juce::dontSendNotification);
@@ -157,11 +159,11 @@ void AudioSettingsPanel::resized() {
 
     // Dedicated permanent diagnostic section directly below Audio Status
     auto errTitleRow = bounds.removeFromTop(20);
-    m_errorTitle.setBounds(errTitleRow);
+    m_diagTitle.setBounds(errTitleRow);
     bounds.removeFromTop(2);
 
-    auto errValRow = bounds.removeFromTop(52);
-    m_errorValue.setBounds(errValRow);
+    auto errValRow = bounds.removeFromTop(180);
+    m_diagTextEditor.setBounds(errValRow);
     bounds.removeFromTop(spacing);
 
     layoutRow(m_bufferDurationTitle, m_bufferDurationValue);
@@ -276,6 +278,8 @@ void AudioSettingsPanel::updateTelemetryUI() {
 
     const auto metrics = m_engine->getMetrics();
     const auto state = metrics.audioState;
+    const auto diag = m_engine->getDiagnosticInfo();
+    const auto config = m_engine->getCurrentConfig();
 
     // Format Audio Status
     juce::String statusText = "● " + juce::String(audio::audioStateToString(state)).toUpperCase();
@@ -291,17 +295,13 @@ void AudioSettingsPanel::updateTelemetryUI() {
         m_audioStatusValue.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa)); // Gray
     }
 
-    // Capture & Display Real Error Message
+    // Capture & Format Full Diagnostic String
     const std::string err = m_engine->getLastError();
     const bool isErrorState = (state == audio::AudioState::Error) || !err.empty();
 
     if (isErrorState) {
-        m_errorTitle.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
-        const std::string displayErr = "Unable to open audio device: " + (err.empty() ? std::string("driver returned failure or device closed") : err);
-        m_errorValue.setText(displayErr, juce::dontSendNotification);
-        m_errorValue.setColour(juce::Label::backgroundColourId, juce::Colour(0x33ef4444));
-        m_errorValue.setColour(juce::Label::outlineColourId, juce::Colour(0xffef4444));
-        m_errorValue.setColour(juce::Label::textColourId, juce::Colour(0xfffecaca));
+        m_diagTitle.setColour(juce::Label::textColourId, juce::Colour(0xffef4444));
+        m_diagTextEditor.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xffef4444));
 
         // When device has not opened successfully, display "--" instead of pretending 0 is actual topology
         m_inputChannelsValue.setText("--", juce::dontSendNotification);
@@ -310,16 +310,19 @@ void AudioSettingsPanel::updateTelemetryUI() {
         m_outputLatencyValue.setText("--", juce::dontSendNotification);
         m_processingValue.setText("--", juce::dontSendNotification);
     } else {
-        m_errorTitle.setColour(juce::Label::textColourId, juce::Colour(0xff71717a));
-        m_errorValue.setText("None (Device operational)", juce::dontSendNotification);
-        m_errorValue.setColour(juce::Label::backgroundColourId, juce::Colour(0x1a22c55e));
-        m_errorValue.setColour(juce::Label::outlineColourId, juce::Colour(0x3322c55e));
-        m_errorValue.setColour(juce::Label::textColourId, juce::Colour(0xff86efac));
+        m_diagTitle.setColour(juce::Label::textColourId, juce::Colour(0xff71717a));
+        m_diagTextEditor.setColour(juce::TextEditor::outlineColourId, juce::Colour(0xff27272a));
 
         auto devMgr = m_engine->getDeviceManager();
-        if (devMgr) {
+        if (devMgr && devMgr->isAudioRunning()) {
             m_inputChannelsValue.setText(std::to_string(devMgr->getInputChannelCount()), juce::dontSendNotification);
             m_outputChannelsValue.setText(std::to_string(devMgr->getOutputChannelCount()), juce::dontSendNotification);
+        } else if (diag.isDeviceOpen) {
+            m_inputChannelsValue.setText(std::to_string(diag.activeInputChannels), juce::dontSendNotification);
+            m_outputChannelsValue.setText(std::to_string(diag.activeOutputChannels), juce::dontSendNotification);
+        } else {
+            m_inputChannelsValue.setText("--", juce::dontSendNotification);
+            m_outputChannelsValue.setText("--", juce::dontSendNotification);
         }
 
         std::ostringstream inLatStream, outLatStream, procStream;
@@ -330,6 +333,56 @@ void AudioSettingsPanel::updateTelemetryUI() {
         m_inputLatencyValue.setText(inLatStream.str(), juce::dontSendNotification);
         m_outputLatencyValue.setText(outLatStream.str(), juce::dontSendNotification);
         m_processingValue.setText(procStream.str(), juce::dontSendNotification);
+    }
+
+    // Build Formatted Diagnostic Information
+    juce::String diagText;
+    diagText << "Device:\n" << (diag.deviceName.empty() ? (config.deviceName.empty() ? "None" : juce::String(config.deviceName)) : juce::String(diag.deviceName)) << "\n\n";
+
+    diagText << "Initialization result:\n";
+    if (!diag.setAudioDeviceSetupResult.empty() && diag.setAudioDeviceSetupResult != "OK") {
+        diagText << diag.setAudioDeviceSetupResult << "\n\n";
+    } else if (!diag.initialiseResult.empty() && diag.initialiseResult != "OK") {
+        diagText << diag.initialiseResult << "\n\n";
+    } else if (isErrorState) {
+        diagText << (err.empty() ? "Device initialization failed" : juce::String(err)) << "\n\n";
+    } else {
+        diagText << "OK (Initialized successfully)\n\n";
+    }
+
+    diagText << "Device pointer:\n" << (diag.hasDevicePointer ? "VALID" : "NULL") << "\n\n";
+    diagText << "Device open:\n" << (diag.isDeviceOpen ? "YES" : "NO") << "\n\n";
+    diagText << "JUCE last error:\n" << (diag.deviceLastError.empty() ? "None" : juce::String(diag.deviceLastError)) << "\n\n";
+
+    diagText << "Requested:\n" << juce::String(static_cast<int>(config.sampleRate)) << " Hz / " << juce::String(config.bufferSize) << " samples\n\n";
+
+    diagText << "Actual:\n";
+    if (diag.isDeviceOpen && diag.actualSampleRate > 0.0) {
+        diagText << juce::String(static_cast<int>(diag.actualSampleRate)) << " Hz / " << juce::String(diag.actualBufferSize) << " samples\n\n";
+    } else {
+        diagText << "--\n\n";
+    }
+
+    diagText << "Input channels:\n";
+    if (diag.isDeviceOpen) {
+        diagText << juce::String(diag.activeInputChannels) << "\n\n";
+    } else {
+        diagText << "--\n\n";
+    }
+
+    diagText << "Output channels:\n";
+    if (diag.isDeviceOpen) {
+        diagText << juce::String(diag.activeOutputChannels);
+    } else {
+        diagText << "--";
+    }
+
+    if (!diag.secondaryDiagnostic.empty()) {
+        diagText << "\n\nNote:\n" << diag.secondaryDiagnostic;
+    }
+
+    if (m_diagTextEditor.getText() != diagText) {
+        m_diagTextEditor.setText(diagText, false);
     }
 
     // Format Metrics: Buffer Duration

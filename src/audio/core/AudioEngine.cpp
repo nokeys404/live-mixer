@@ -143,6 +143,13 @@ std::string AudioEngine::getLastError() const {
     return {};
 }
 
+AudioDeviceDiagnostic AudioEngine::getDiagnosticInfo() const {
+    if (m_deviceManager) {
+        return m_deviceManager->getDiagnosticInfo();
+    }
+    return {};
+}
+
 void AudioEngine::setState(AudioState newState) noexcept {
     const auto current = getState();
     if (isValidStateTransition(current, newState)) {

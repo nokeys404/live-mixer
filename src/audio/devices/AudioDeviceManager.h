@@ -10,6 +10,31 @@
 namespace livemixer::audio {
 
 /**
+ * @brief Detailed diagnostic snapshot of JUCE AudioDeviceManager and AudioIODevice initialization state
+ */
+struct AudioDeviceDiagnostic {
+    std::string driverTypeName;
+    std::string deviceName;
+    double requestedSampleRate = 0.0;
+    uint32_t requestedBufferSize = 0;
+    int requestedInputChannels = 2;
+    int requestedOutputChannels = 2;
+
+    std::string initialiseResult;
+    std::string setAudioDeviceSetupResult;
+    std::string deviceLastError;
+    bool hasDevicePointer = false;
+    bool isDeviceOpen = false;
+    double actualSampleRate = 0.0;
+    uint32_t actualBufferSize = 0;
+    std::vector<std::string> inputChannelNames;
+    std::vector<std::string> outputChannelNames;
+    uint32_t activeInputChannels = 0;
+    uint32_t activeOutputChannels = 0;
+    std::string secondaryDiagnostic;
+};
+
+/**
  * @brief Information about an audio device discovered directly from JUCE AudioIODeviceType
  */
 struct AudioDeviceInfo {
@@ -97,6 +122,7 @@ public:
 
     // Errors & Diagnostics
     virtual std::string getLastError() const = 0;
+    virtual AudioDeviceDiagnostic getDiagnosticInfo() const = 0;
 
     // Listeners for hotplug/disconnect notifications
     virtual void addListener(IAudioDeviceListener* listener) = 0;

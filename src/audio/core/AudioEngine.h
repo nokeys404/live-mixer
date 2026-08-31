@@ -34,6 +34,7 @@ public:
     [[nodiscard]] AudioState getState() const noexcept;
     [[nodiscard]] AudioMetricsSnapshot getMetrics() const noexcept;
     [[nodiscard]] std::string getLastError() const;
+    [[nodiscard]] AudioDeviceDiagnostic getDiagnosticInfo() const;
     [[nodiscard]] std::shared_ptr<IAudioDeviceManager> getDeviceManager() const noexcept { return m_deviceManager; }
 
     // Configuration updates

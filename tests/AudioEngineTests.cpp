@@ -216,6 +216,29 @@ void testExactErrorStringPreservation() {
     TEST_ASSERT(engine->getLastError() == simulatedDriverError, "Exact device driver error string preserved in AudioEngine");
 }
 
+void testDiagnosticInfoRetrieval() {
+    std::cout << "Running testDiagnosticInfoRetrieval...\n";
+    std::shared_ptr<IAudioDeviceManager> devMgr = createAudioDeviceManager();
+    auto engine = std::make_unique<AudioEngine>(devMgr);
+
+    AudioConfig validCfg;
+    validCfg.driverType = DriverType::ASIO;
+    validCfg.sampleRate = 48000.0;
+    validCfg.bufferSize = 128;
+    validCfg.inputChannelCount = 2;
+    validCfg.outputChannelCount = 2;
+
+    engine->initialize(validCfg);
+    auto diag = engine->getDiagnosticInfo();
+
+    TEST_ASSERT(diag.hasDevicePointer, "Diagnostic info reports valid device pointer when opened");
+    TEST_ASSERT(diag.isDeviceOpen, "Diagnostic info reports device is open");
+    TEST_ASSERT(diag.actualSampleRate == 48000.0, "Diagnostic reports correct actual sample rate");
+    TEST_ASSERT(diag.actualBufferSize == 128, "Diagnostic reports correct actual buffer size");
+    TEST_ASSERT(diag.activeInputChannels == 2, "Diagnostic reports 2 input channels");
+    TEST_ASSERT(diag.activeOutputChannels == 2, "Diagnostic reports 2 output channels");
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << "LIVE MIXER V0.1 FOUNDATION TEST SUITE\n";
@@ -229,6 +252,7 @@ int main() {
     testDeviceDisconnectHandling();
     testErrorDiagnostics();
     testExactErrorStringPreservation();
+    testDiagnosticInfoRetrieval();
 
     std::cout << "\n========================================\n";
     std::cout << "TEST RESULTS: " << g_testsPassed << " passed, " << g_testsFailed << " failed.\n";

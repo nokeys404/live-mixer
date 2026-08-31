@@ -12,7 +12,7 @@ MainWindow::MainWindow(juce::String name, std::shared_ptr<audio::AudioEngine> en
     setContentNonOwned(m_settingsPanel.get(), true);
 
     setResizable(false, false);
-    centreWithSize(500, 720);
+    centreWithSize(520, 840);
     setVisible(true);
 }
 

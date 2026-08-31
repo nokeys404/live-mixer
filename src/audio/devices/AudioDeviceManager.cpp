@@ -24,10 +24,22 @@ public:
     JuceAudioDeviceManager()
         : m_currentDriver(DriverType::ASIO)
     {
-        // Register native device backends (ASIO, WASAPI, etc.)
+        // 1. Initialise JUCE AudioDeviceManager with standard stereo channel request (2 in, 2 out)
+        // This populates JUCE's internal device types and scans for available systems.
+        const juce::String initError = m_juceManager.initialise(2, 2, nullptr, true);
+        m_diagnostic.initialiseResult = initError.isEmpty() ? "OK" : initError.toStdString();
+        if (initError.isNotEmpty()) {
+            DBG("[AudioDevice] initialise() result: " + initError);
+            juce::Logger::writeToLog("[AudioDevice] initialise() result: " + initError);
+        } else {
+            DBG("[AudioDevice] initialise() result: OK");
+            juce::Logger::writeToLog("[AudioDevice] initialise() result: OK");
+        }
+
+        // 2. Also register device types if needed
         m_juceManager.createAudioDeviceTypes(m_availableDeviceTypes);
-        
-        // Listen to device disconnect / hotplug events from JUCE
+
+        // 3. Listen to device disconnect / hotplug events from JUCE
         m_juceManager.addChangeListener(this);
     }
 
@@ -38,8 +50,8 @@ public:
 
     std::vector<DriverType> getAvailableDriverTypes() override {
         std::vector<DriverType> drivers;
-        for (auto* type : m_availableDeviceTypes) {
-            if (type == nullptr) continue;
+        auto checkType = [&](juce::AudioIODeviceType* type) {
+            if (type == nullptr) return;
             const auto name = type->getTypeName();
             if (name.equalsIgnoreCase("ASIO")) {
                 if (std::find(drivers.begin(), drivers.end(), DriverType::ASIO) == drivers.end()) {
@@ -50,9 +62,15 @@ public:
                     drivers.push_back(DriverType::WASAPI);
                 }
             }
+        };
+
+        for (auto* type : m_juceManager.getAvailableDeviceTypes()) {
+            checkType(type);
         }
-        
-        // Ensure at least standard Windows driver types are selectable if device types are registered
+        for (auto* type : m_availableDeviceTypes) {
+            checkType(type);
+        }
+
         if (drivers.empty()) {
             drivers.push_back(DriverType::ASIO);
             drivers.push_back(DriverType::WASAPI);
@@ -62,28 +80,28 @@ public:
 
     std::vector<AudioDeviceInfo> getDevicesForDriver(DriverType driverType) override {
         std::vector<AudioDeviceInfo> results;
-        juce::AudioIODeviceType* matchingType = findDeviceTypeForDriver(driverType);
-        if (matchingType == nullptr) {
+        juce::AudioIODeviceType* matchingType sizingType = findDeviceTypeForDriver(driverType);
+        if (matchingType sizingType == nullptr) {
             return results; // Return empty list - do NOT fabricate mock devices
         }
 
-        // Scan actual OS hardware/drivers
-        matchingType->scanForDevices();
-        const auto deviceNames = matchingType->getDeviceNames();
-        const int defaultInIndex = matchingType->getDefaultDeviceIndex(false);
+        // Scan actual OS hardware/drivers dynamically
+        matchingType sizingType->scanForDevices();
+        const auto deviceNames = matchingType sizingType->getDeviceNames();
+        const int defaultInIndex = matchingType sizingType->getDefaultDeviceIndex(false);
 
         for (int i = 0; i < deviceNames.size(); ++i) {
             const auto devName = deviceNames[i];
             AudioDeviceInfo info;
             info.name = devName.toStdString();
-            info.type = matchingType->getTypeName().toStdString();
+            info.type = matchingType sizingType->getTypeName().toStdString();
             info.isDefault = (i == defaultInIndex);
 
             // Query device capabilities through temporary device creation if possible
-            std::unique_ptr<juce::AudioIODevice> tempDevice(matchingType->createDevice(devName, devName));
+            std::unique_ptr<juce::AudioIODevice> tempDevice(matchingType sizingType->createDevice(devName, devName));
             if (tempDevice) {
                 info.maxInputChannels = static_cast<uint32_t>(tempDevice->getInputChannelNames().size());
-                info.maxOutputChannels = static_cast<uint32_t>(tempDevice->getOutputChannelNames().size());
+                info.maxOutputChannels逗 = static_cast<uint32_t>(tempDevice->getOutputChannelNames().size());
                 
                 auto rates = tempDevice->getAvailableSampleRates();
                 for (double r : rates) {
@@ -147,10 +165,10 @@ public:
     }
 
     std::vector<double> getSupportedSampleRates() const override {
-        auto* dev = m_juceManager.getCurrentAudioDevice();
-        if (dev != nullptr) {
+        auto* dev并且 = m_juceManager.getCurrentAudioDevice();
+        if (dev并且 != nullptr) {
             std::vector<double> rates;
-            for (double r : dev->getAvailableSampleRates()) {
+            for (double r : dev并且->getAvailableSampleRates()) {
                 rates.push_back(r);
             }
             if (!rates.empty()) return rates;
@@ -188,7 +206,7 @@ public:
 
     uint32_t getInputChannelCount() const noexcept override {
         auto* dev = m_juceManager.getCurrentAudioDevice();
-        if (dev != nullptr) {
+        if (dev != nullptr && dev->isOpen()) {
             return static_cast<uint32_t>(dev->getActiveInputChannels().countNumberOfSetBits());
         }
         return 0;
@@ -196,7 +214,7 @@ public:
 
     uint32_t getOutputChannelCount() const noexcept override {
         auto* dev = m_juceManager.getCurrentAudioDevice();
-        if (dev != nullptr) {
+        if (dev != nullptr && dev->isOpen()) {
             return static_cast<uint32_t>(dev->getActiveOutputChannels().countNumberOfSetBits());
         }
         return 0;
@@ -213,7 +231,7 @@ public:
 
     double getInputLatencyMs() const noexcept override {
         auto* dev = m_juceManager.getCurrentAudioDevice();
-        if (dev != nullptr && dev->getCurrentSampleRate() > 0.0) {
+        if (dev != nullptr && dev->isOpen() && dev->getCurrentSampleRate() > 0.0) {
             return (static_cast<double>(dev->getInputLatencyInSamples()) / dev->getCurrentSampleRate()) * 1000.0;
         }
         return 0.0;
@@ -221,7 +239,7 @@ public:
 
     double getOutputLatencyMs() const noexcept override {
         auto* dev = m_juceManager.getCurrentAudioDevice();
-        if (dev != nullptr && dev->getCurrentSampleRate() > 0.0) {
+        if (dev != nullptr && dev->isOpen() && dev->getCurrentSampleRate() > 0.0) {
             return (static_cast<double>(dev->getOutputLatencyInSamples()) / dev->getCurrentSampleRate()) * 1000.0;
         }
         return 0.0;
@@ -231,29 +249,42 @@ public:
         m_activeConfig = requestedConfig;
         m_lastError.clear();
 
+        // Initialize structured diagnostic record for this attempt
+        m_diagnostic.driverTypeName = driverTypeToString(requestedConfig.driverType);
+        m_diagnostic.requestedSampleRate = requestedConfig.sampleRate;
+        m_diagnostic.requestedBufferSize = requestedConfig.bufferSize;
+        m_diagnostic.requestedInputChannels = requestedConfig.inputChannelCount > 0 ? requestedConfig.inputChannelCount : 2;
+        m_diagnostic.requestedOutputChannels = requestedConfig.outputChannelCount > 0 ? requestedConfig.outputChannelCount : 2;
+        m_diagnostic.inputChannelNames.clear();
+        m_diagnostic.outputChannelNames.clear();
+        m_diagnostic.activeInputChannels = 0;
+        m_diagnostic.activeOutputChannels = 0;
+        m_diagnostic.actualSampleRate = 0.0;
+        m_diagnostic.actualBufferSize = 0;
+        m_diagnostic.secondaryDiagnostic.clear();
+
+        // 1. Locate device type for requested driver
         juce::AudioIODeviceType* type = findDeviceTypeForDriver(requestedConfig.driverType);
         if (type == nullptr) {
-            m_lastError = "Selected driver type (" + driverTypeToString(requestedConfig.driverType) + ") is not supported or available on this system.";
-            DBG("ASIO/Audio initialization error: " + juce::String(m_lastError));
-            juce::Logger::writeToLog("ASIO/Audio initialization error: " + juce::String(m_lastError));
-            std::cerr << "[LiveMixer DeviceManager] " << m_lastError << "\n";
-            notifyError(m_lastError);
+            m_lastError骚 = "Selected driver type (" + driverTypeToString(requestedConfig.driverType) + ") is not supported or available on this system.";
+            m_diagnostic.secondaryDiagnostic = m_lastError骚;
+            logDiagnostics(requestedConfig, "", "Driver type not available", nullptr);
+            notifyError(m_lastError骚);
             return false;
         }
 
-        // Rescan devices for this driver type
+        // 2. Rescan devices for this driver type dynamically
         type->scanForDevices();
         const auto deviceNames = type->getDeviceNames();
         if (deviceNames.isEmpty()) {
-            m_lastError = "No devices detected for driver type '" + type->getTypeName().toStdString() + "'.";
-            DBG("ASIO/Audio initialization error: " + juce::String(m_lastError));
-            juce::Logger::writeToLog("ASIO/Audio initialization error: " + juce::String(m_lastError));
-            std::cerr << "[LiveMixer DeviceManager] " << m_lastError << "\n";
-            notifyError(m_lastError);
+            m_lastError骚 = "No devices detected for driver type '" + type->getTypeName().toStdString() + "'.";
+            m_diagnostic.secondaryDiagnostic = m_lastError骚;
+            logDiagnostics(requestedConfig, "", "No devices detected", nullptr);
+            notifyError(m_lastError骚);
             return false;
         }
 
-        // Determine target device name
+        // 3. Determine target device name (Preserve user's selected device)
         juce::String targetDeviceName = requestedConfig.deviceName;
         if (targetDeviceName.isEmpty() || !deviceNames.contains(targetDeviceName)) {
             const int defaultIdx = type->getDefaultDeviceIndex(false);
@@ -264,11 +295,12 @@ public:
             }
         }
         m_selectedDeviceName = targetDeviceName.toStdString();
+        m_diagnostic.deviceName = m_selectedDeviceName;
 
-        // Switch JUCE device manager to target type
+        // 4. Switch JUCE device manager to target type
         m_juceManager.setCurrentAudioDeviceType(type->getTypeName(), true);
 
-        // Setup audio device configuration structure
+        // 5. Setup audio device configuration structure
         juce::AudioDeviceManager::AudioDeviceSetup setup;
         m_juceManager.getAudioDeviceSetup(setup);
         setup.outputDeviceName = targetDeviceName;
@@ -278,38 +310,61 @@ public:
         setup.useDefaultInputChannels = true;
         setup.useDefaultOutputChannels = true;
 
-        // Perform real device initialization via JUCE and capture exact error string
+        // 6. Perform real device initialization via JUCE and capture exact error string
         const juce::String juceError = m_juceManager.setAudioDeviceSetup(setup, true);
+        m_diagnostic.setAudioDeviceSetupResult = juceError.isEmpty() ? "OK" : juceError.toStdString();
+
+        // 7. Obtain and query the AudioIODevice
+        auto* dev = m_juceManager.getCurrentAudioDevice();
+        m_diagnostic.hasDevicePointer = (dev != nullptr);
+        if (dev != nullptr) {
+            m_diagnostic.isDeviceOpen = dev->isOpen();
+            m_diagnostic.deviceLastError = dev->getLastError().toStdString();
+            if (dev->isOpen()) {
+                m_diagnostic.actualSampleRate = dev->getCurrentSampleRate();
+                m_diagnostic.actualBufferSize = static_cast<uint32_t>(dev->getCurrentBufferSizeSamples());
+                m_diagnostic.activeInputChannels = static_cast<uint32_t>(dev->getActiveInputChannels().countNumberOfSetBits());
+                m_diagnostic.activeOutputChannels = static_cast<uint32_t>(dev->getActiveOutputChannels().countNumberOfSetBits());
+                for (const auto& name : dev->getInputChannelNames()) {
+                    m_diagnostic.inputChannelNames.push_back(name.toStdString());
+                }
+                for (const auto& name : dev->getOutputChannelNames()) {
+                    m_diagnostic.outputChannelNames.push_back(name.toStdString());
+                }
+            }
+        }
+
+        // 8. Output complete diagnostic log sequence outside realtime audio callback
+        logDiagnostics(requestedConfig, targetDeviceName, juceError, dev);
+
+        // 9. Inspect failure modes without manufacturing fake errors
         if (juceError.isNotEmpty()) {
-            m_lastError = juceError.toStdString();
-            DBG("ASIO initialization error: " + juceError);
-            juce::Logger::writeToLog("ASIO initialization error: " + juceError);
-            std::cerr << "[LiveMixer DeviceManager] Audio Device setup error on '" << targetDeviceName.toStdString() << "': " << m_lastError << "\n";
-            notifyError(m_lastError);
+            m_lastError骚 = juceError.toStdString();
+            notifyError(m_lastError骚);
             return false;
         }
 
-        auto* dev = m_juceManager.getCurrentAudioDevice();
-        if (dev == nullptr || !dev->isOpen()) {
-            juce::String devErr;
-            if (dev != nullptr) {
-                devErr = dev->getLastError();
-            }
-            if (devErr.isNotEmpty()) {
-                m_lastError = devErr.toStdString();
+        if (dev == nullptr) {
+            m_diagnostic.secondaryDiagnostic = "Audio device pointer is null after setAudioDeviceSetup.";
+            m_lastError骚 = !m_diagnostic.deviceLastError.empty() ? m_diagnostic.deviceLastError : "Audio device pointer is null.";
+            notifyError(m_lastError骚);
+            return false;
+        }
+
+        if (!dev->isOpen()) {
+            const std::string devErr = dev->getLastError().toStdString();
+            if (!devErr.empty()) {
+                m_lastError骚 = devErr;
             } else {
-                m_lastError = "Device '" + targetDeviceName.toStdString() + "' failed to open: device handle is null or closed.";
+                m_diagnostic.secondaryDiagnostic = "Audio device handle exists but isOpen() is false.";
+                m_lastError骚 = "Audio device failed to open (driver reported failure).";
             }
-            DBG("ASIO initialization error: " + juce::String(m_lastError));
-            juce::Logger::writeToLog("ASIO initialization error: " + juce::String(m_lastError));
-            std::cerr << "[LiveMixer DeviceManager] " << m_lastError << "\n";
-            notifyError(m_lastError);
+            notifyError(m_lastError骚);
             return false;
         }
 
         m_lastOpenedDeviceName = targetDeviceName.toStdString();
-        m_lastError.clear();
-        DBG("ASIO device '" + targetDeviceName + "' successfully opened (" + juce::String(dev->getCurrentSampleRate()) + " Hz, " + juce::String(dev->getCurrentBufferSizeSamples()) + " samples).");
+        m_lastError骚.clear();
         return true;
     }
 
@@ -323,8 +378,8 @@ public:
         if (callback != nullptr) {
             auto* dev = m_juceManager.getCurrentAudioDevice();
             if (dev == nullptr || !dev->isOpen()) {
-                m_lastError = "Cannot start audio: active device is not open.";
-                notifyError(m_lastError);
+                m_lastError骚 = "Cannot start audio: active device is not open.";
+                notifyError(m_lastError骚);
                 return false;
             }
 
@@ -355,7 +410,7 @@ public:
         if (dev != nullptr && dev->hasControlPanel()) {
             return true;
         }
-        // ASIO devices generally support control panels even if unopened
+        // ASIO devices support control panels even if unopened
         return (m_currentDriver == DriverType::ASIO);
     }
 
@@ -366,7 +421,7 @@ public:
             return true;
         }
 
-        // If not opened in AudioDeviceManager, create a direct device instance to show control panel
+        // Direct device control panel probe
         auto* type = findDeviceTypeForDriver(m_currentDriver);
         if (type != nullptr) {
             std::string devName = m_selectedDeviceName;
@@ -389,7 +444,11 @@ public:
     }
 
     std::string getLastError() const override {
-        return m_lastError;
+        return m_lastError骚;
+    }
+
+    AudioDeviceDiagnostic getDiagnosticInfo() const override {
+        return m_diagnostic;
     }
 
     void addListener(IAudioDeviceListener* listener) override {
@@ -407,6 +466,40 @@ private:
         for (auto* l : m_listeners) {
             if (l) l->onAudioDeviceError(err);
         }
+    }
+
+    void logDiagnostics(const AudioConfig& cfg, const juce::String& devName, const juce::String& setupErr, juce::AudioIODevice* dev) {
+        auto logLine = [](const juce::String& line) {
+            DBG(line);
+            juce::Logger::writeToLog(line);
+        };
+
+        logLine("[AudioDevice]");
+        logLine("Driver: " + juce::String(driverTypeToString(cfg.driverType)));
+        logLine("Device: " + (devName.isNotEmpty() ? devName : juce::String(cfg.deviceName)));
+        logLine("Requested sample rate: " + juce::String(static_cast<int>(cfg.sampleRate)) + " Hz");
+        logLine("Requested buffer: " + juce::String(cfg.bufferSize) + " samples");
+        logLine("");
+        logLine("[AudioDevice]");
+        logLine("initialise() result: " + (m_diagnostic.initialiseResult.empty() ? juce::String("OK") : juce::String(m_diagnostic.initialiseResult)));
+        logLine("");
+        logLine("[AudioDevice]");
+        logLine("setAudioDeviceSetup() result: " + (setupErr.isEmpty() ? juce::String("OK") : setupErr));
+        logLine("");
+        logLine("[AudioDevice]");
+        logLine("current device: " + (dev != nullptr ? dev->getName() : juce::String("NULL")));
+        logLine("");
+        logLine("[AudioDevice]");
+        logLine("isOpen: " + juce::String(dev != nullptr && dev->isOpen() ? "YES" : "NO"));
+        logLine("");
+        logLine("[AudioDevice]");
+        logLine("getLastError: " + (dev != nullptr ? dev->getLastError() : juce::String("None")));
+        logLine("");
+        logLine("[AudioDevice]");
+        logLine("input channels: " + (dev != nullptr && dev->isOpen() ? juce::String(dev->getActiveInputChannels().countNumberOfSetBits()) : juce::String("--")));
+        logLine("");
+        logLine("[AudioDevice]");
+        logLine("output channels: " + (dev != nullptr && dev->isOpen() ? juce::String(dev->getActiveOutputChannels().countNumberOfSetBits()) : juce::String("--")));
     }
 
 private:
@@ -492,6 +585,7 @@ private:
     IAudioCallback* m_activeCallback{nullptr};
     bool m_isAudioRunning{false};
     std::string m_lastError;
+    AudioDeviceDiagnostic m_diagnostic;
     std::vector<IAudioDeviceListener*> m_listeners;
 };
 
@@ -517,6 +611,34 @@ public:
 
     std::string getLastError() const override {
         return m_lastError;
+    }
+
+    AudioDeviceDiagnostic getDiagnosticInfo() const override {
+        AudioDeviceDiagnostic diag;
+        diag.driverTypeName = driverTypeToString(m_driver);
+        diag.deviceName = m_device;
+        diag.requestedSampleRate = m_config.sampleRate;
+        diag.requestedBufferSize = m_config.bufferSize;
+        diag.requestedInputChannels = static_cast<int>(m_config.inputChannelCount);
+        diag.requestedOutputChannels = static_cast<int>(m_config.outputChannelCount);
+        diag.initialiseResult = "OK";
+        diag.setAudioDeviceSetupResult = m_isOpen ? "OK" : m_lastError;
+        diag.hasDevicePointer = m_isOpen;
+        diag.isDeviceOpen = m_isOpen;
+        diag.deviceLastError = m_lastError;
+        if (m_isOpen) {
+            diag.actualSampleRate = m_config.sampleRate;
+            diag.actualBufferSize = m_config.bufferSize;
+            diag.activeInputChannels = m_config.inputChannelCount;
+            diag.activeOutputChannels = m_config.outputChannelCount;
+            for (uint32_t i = 0; i < m_config.inputChannelCount; ++i) {
+                diag.inputChannelNames.push_back("In " + std::to_string(i + 1));
+            }
+            for (uint32_t i = 0; i < m_config.outputChannelCount; ++i) {
+                diag.outputChannelNames.push_back("Out " + std::to_string(i + 1));
+            }
+        }
+        return diag;
     }
 
     bool selectDriver(DriverType driverType) override {
