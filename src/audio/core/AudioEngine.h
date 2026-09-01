@@ -9,6 +9,9 @@
 #include <chrono>
 #include <atomic>
 #include <string>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 namespace livemixer::audio {
 
@@ -28,6 +31,9 @@ public:
     bool start();
     void stop();
     void shutdown();
+
+    // Auto-reconnection trigger / check
+    void checkAutoReconnect();
 
     // Configuration & Device querying
     [[nodiscard]] AudioConfig getCurrentConfig() const;
@@ -71,10 +77,27 @@ private:
     void setState(AudioState newState) noexcept;
     void updateLatencies() noexcept;
 
+    // Reconnect background thread management (non-realtime)
+    void startReconnectThread();
+    void stopReconnectThread();
+    void reconnectThreadLoop();
+
     std::shared_ptr<IAudioDeviceManager> m_deviceManager;
     AudioConfig m_config;
     AudioMetrics m_metrics;
     std::string m_lastErrorMessage;
+
+    // Auto-reconnection state & guards
+    bool m_wasRunningBeforeDisconnect{false};
+    std::atomic<bool> m_isReconnecting{false};
+    std::string m_disconnectedDeviceName;
+
+    // Background reconnect thread members
+    std::thread m_reconnectThread;
+    std::mutex m_reconnectMutex;
+    std::condition_variable m_reconnectCv;
+    std::atomic<bool> m_reconnectThreadActive{false};
+    std::atomic<bool> m_reconnectRequested{false};
 
     // Preallocated scratch / passthrough buffers (Never allocate in audio thread!)
     static constexpr size_t MAX_SUPPORTED_CHANNELS = 8;

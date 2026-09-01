@@ -549,13 +549,14 @@ private:
     // =========================================================================
     void changeListenerCallback(juce::ChangeBroadcaster* /*source*/) override {
         auto* dev = m_juceManager.getCurrentAudioDevice();
-        if (dev == nullptr || !dev->isOpen()) {
-            // Hardware device disconnected or disappeared
+        if (m_isAudioRunning && (dev == nullptr || !dev->isOpen())) {
+            // Hardware device disconnected or disappeared while audio was actively running
             m_isAudioRunning = false;
             for (auto* l : m_listeners) {
                 if (l) l->onDeviceDisconnected(m_lastOpenedDeviceName);
             }
         } else {
+            // Device list or audio configuration updated
             for (auto* l : m_listeners) {
                 if (l) l->onDeviceListChanged();
             }

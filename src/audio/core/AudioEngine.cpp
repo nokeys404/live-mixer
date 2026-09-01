@@ -16,12 +16,152 @@ AudioEngine::AudioEngine(std::shared_ptr<IAudioDeviceManager> deviceManager)
         m_deviceManager->addListener(this);
     }
     setState(AudioState::Offline);
+    startReconnectThread();
 }
 
 AudioEngine::~AudioEngine() {
+    stopReconnectThread();
     shutdown();
     if (m_deviceManager) {
         m_deviceManager->removeListener(this);
+    }
+}
+
+void AudioEngine::startReconnectThread() {
+    if (!m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+        m_reconnectThreadActive.store(true, std::memory_order_relaxed);
+        m_reconnectThread = std::thread(&AudioEngine::reconnectThreadLoop, this);
+    }
+}
+
+void AudioEngine::stopReconnectThread() {
+    if (m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+        m_reconnectThreadActive.store(false, std::memory_order_relaxed);
+        {
+            std::lock_guard<std::mutex> lock(m_reconnectMutex);
+            m_reconnectCv.notify_all();
+        }
+        if (m_reconnectThread.joinable()) {
+            m_reconnectThread.join();
+        }
+    }
+}
+
+void AudioEngine::reconnectThreadLoop() {
+    while (m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+        std::unique_lock<std::mutex> lock(m_reconnectMutex);
+        // Wait for 1200ms or until explicitly signaled by a device list change event
+        m_reconnectCv.wait_for(lock, std::chrono::milliseconds(1200), [this] {
+            return !m_reconnectThreadActive.load(std::memory_order_relaxed) ||
+                   m_reconnectRequested.load(std::memory_order_relaxed);
+        });
+
+        m_reconnectRequested.store(false, std::memory_order_relaxed);
+
+        if (!m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+            break;
+        }
+
+        // Release mutex before performing device checks/queries
+        lock.unlock();
+
+        // Perform safe non-realtime auto-reconnect evaluation
+        checkAutoReconnect();
+    }
+}
+
+void AudioEngine::checkAutoReconnect() {
+    if (!m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    // Only attempt reconnect if we were running prior to disconnect or currently in Error/Recovering state
+    const auto currentState = getState();
+    if (!m_wasRunningBeforeDisconnect && currentState != AudioState::Error && currentState != AudioState::Recovering) {
+        return;
+    }
+
+    if (m_config.deviceName.empty() || !m_deviceManager) {
+        return;
+    }
+
+    // Atomic guard to prevent overlapping / re-entrant reconnect attempts
+    bool expected = false;
+    if (!m_isReconnecting.compare_exchange_strong(expected, true)) {
+        return; // Another reconnect attempt is already in progress
+    }
+
+    struct ReconnectGuard {
+        std::atomic<bool>& flag;
+        ~ReconnectGuard() { flag.store(false, std::memory_order_release); }
+    } guard{m_isReconnecting};
+
+    // 1. Query available devices for the current driver backend
+    const auto availableDevices = m_deviceManager->getDevicesForDriver(m_config.driverType);
+    bool targetFound = false;
+
+    for (const auto& dev : availableDevices) {
+        if (dev.name == m_config.deviceName) {
+            targetFound = true;
+            break;
+        }
+    }
+
+    if (!targetFound) {
+        // Target device has not reappeared yet; keep status and wait for next notification/interval
+        m_lastErrorMessage = "Audio device disconnected. Waiting for device reconnection...";
+        return;
+    }
+
+    if (!m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    // 2. Target device detected; attempt safe reinitialization on this background thread
+    m_lastErrorMessage = "Audio device detected. Attempting automatic reconnection...";
+    setState(AudioState::Recovering);
+
+    // Stop and close any stale device handles first
+    m_deviceManager->closeDevice();
+
+    if (!m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    // Reopen device with preserved user configuration
+    if (m_deviceManager->openDevice(m_config)) {
+        if (!m_reconnectThreadActive.load(std::memory_order_relaxed)) {
+            m_deviceManager->closeDevice();
+            return;
+        }
+
+        // Sync actual parameters from reopened device
+        m_config.deviceName = m_deviceManager->getCurrentDeviceName();
+        m_config.inputChannelCount = m_deviceManager->getInputChannelCount();
+        m_config.outputChannelCount = m_deviceManager->getOutputChannelCount();
+        m_config.sampleRate = m_deviceManager->getCurrentSampleRate();
+        m_config.bufferSize = m_deviceManager->getCurrentBufferSize();
+
+        m_metrics.setConfig(m_config.sampleRate, m_config.bufferSize);
+        updateLatencies();
+        m_lastErrorMessage.clear();
+        setState(AudioState::Ready);
+
+        // 3. Restart audio if it was running before disconnect
+        if (m_wasRunningBeforeDisconnect) {
+            if (m_deviceManager->startAudio(this)) {
+                setState(AudioState::Running);
+                m_wasRunningBeforeDisconnect = false;
+            } else {
+                m_lastErrorMessage = "Audio device reconnected but failed to start audio stream.";
+                setState(AudioState::Error);
+            }
+        }
+    } else {
+        // Device open failed (driver might still be settling); stay in Error and retry on next interval
+        const std::string devErr = m_deviceManager->getLastError();
+        m_lastErrorMessage = !devErr.empty() ? devErr : "Audio device detected but initialization failed. Retrying...";
+        setState(AudioState::Error);
     }
 }
 
@@ -99,6 +239,7 @@ bool AudioEngine::start() {
         return false;
     }
 
+    m_wasRunningBeforeDisconnect = false;
     setState(AudioState::Running);
     return true;
 }
@@ -106,6 +247,7 @@ bool AudioEngine::start() {
 void AudioEngine::stop() {
     if (getState() == AudioState::Running) {
         setState(AudioState::Stopping);
+        m_wasRunningBeforeDisconnect = false;
         if (m_deviceManager) {
             m_deviceManager->stopAudio();
         }
@@ -114,6 +256,8 @@ void AudioEngine::stop() {
 }
 
 void AudioEngine::shutdown() {
+    stopReconnectThread();
+    m_wasRunningBeforeDisconnect = false;
     stop();
     if (m_deviceManager) {
         m_deviceManager->closeDevice();
@@ -335,17 +479,35 @@ void AudioEngine::audioDeviceError(const std::string& errorMessage) {
 // IAudioDeviceListener Implementations
 // =============================================================================
 void AudioEngine::onDeviceListChanged() {
-    // Device list updated on system
+    // Device list changed on system: trigger reconnect thread wake-up
+    m_reconnectRequested.store(true, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(m_reconnectMutex);
+        m_reconnectCv.notify_all();
+    }
 }
 
 void AudioEngine::onDeviceDisconnected(const std::string& deviceName) {
     if (m_config.deviceName == deviceName || deviceName.empty()) {
+        const bool wasRunning = (getState() == AudioState::Running);
+        if (wasRunning) {
+            m_wasRunningBeforeDisconnect = true;
+        }
+
         setState(AudioState::Recovering);
         stop();
         if (m_deviceManager) {
             m_deviceManager->closeDevice();
         }
+        m_lastErrorMessage = "Audio device disconnected. Waiting for device reconnection...";
         setState(AudioState::Error);
+
+        // Signal reconnect thread to begin looking for device return
+        m_reconnectRequested.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(m_reconnectMutex);
+            m_reconnectCv.notify_all();
+        }
     }
 }
 

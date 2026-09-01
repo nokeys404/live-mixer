@@ -73,6 +73,8 @@ export class AudioEngineSim {
   private inputLevels: [number, number] = [0, 0];
   private outputLevels: [number, number] = [0, 0];
   private testSignalType: 'mic' | 'oscillator' | 'silence' = 'oscillator';
+  private wasRunningBeforeDisconnect: boolean = false;
+  private autoReconnectTimer: number | null = null;
 
   constructor() {
     this.config = {
@@ -306,14 +308,40 @@ export class AudioEngineSim {
   }
 
   public simulateDeviceDisconnect() {
-    if (this.state === 'Running') {
+    const wasRunning = (this.state === 'Running');
+    if (wasRunning) {
+      this.wasRunningBeforeDisconnect = true;
       this.state = 'Recovering';
       this.stop();
       this.state = 'Error';
-      this.disconnectListeners.forEach((cb) => cb(`Device '${this.config.deviceName}' disconnected or bus timeout.`));
+      this.disconnectListeners.forEach((cb) => cb(`Device '${this.config.deviceName}' disconnected. Waiting for device reconnection...`));
     } else {
       this.state = 'Error';
       this.disconnectListeners.forEach((cb) => cb(`Device '${this.config.deviceName}' is offline.`));
+    }
+
+    // Schedule automatic simulated reconnect after 2 seconds if device was running
+    if (this.autoReconnectTimer) {
+      clearTimeout(this.autoReconnectTimer);
+      this.autoReconnectTimer = null;
+    }
+
+    if (this.wasRunningBeforeDisconnect) {
+      this.autoReconnectTimer = window.setTimeout(() => {
+        if (this.state === 'Error' || this.state === 'Recovering') {
+          this.state = 'Recovering';
+          this.disconnectListeners.forEach((cb) => cb(`Device '${this.config.deviceName}' detected. Reconnecting...`));
+          setTimeout(() => {
+            this.state = 'Ready';
+            if (this.wasRunningBeforeDisconnect) {
+              this.start().then(() => {
+                this.wasRunningBeforeDisconnect = false;
+                this.disconnectListeners.forEach((cb) => cb(`Device '${this.config.deviceName}' reconnected successfully.`));
+              });
+            }
+          }, 600);
+        }
+      }, 2500);
     }
   }
 
