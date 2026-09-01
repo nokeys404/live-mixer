@@ -63,6 +63,16 @@ public:
         return m_ch1.isSolo() || m_ch2.isSolo() || m_ch34.isSolo();
     }
 
+    // Diagnostic Realtime Telemetry (calculated directly from realtime buffers)
+    [[nodiscard]] float getRawInputPeakCh1() const noexcept { return m_rawInputPeakCh1.load(std::memory_order_relaxed); }
+    [[nodiscard]] float getRawInputPeakCh2() const noexcept { return m_rawInputPeakCh2.load(std::memory_order_relaxed); }
+    [[nodiscard]] float getCh1ProcessedPeak() const noexcept { return m_ch1.getPeakLevel(); }
+    [[nodiscard]] float getCh2ProcessedPeak() const noexcept { return m_ch2.getPeakLevel(); }
+    [[nodiscard]] float getMixBusPeakL() const noexcept { return m_mixBusPeakL.load(std::memory_order_relaxed); }
+    [[nodiscard]] float getMixBusPeakR() const noexcept { return m_mixBusPeakR.load(std::memory_order_relaxed); }
+    [[nodiscard]] float getOutputPeakL() const noexcept { return m_outputPeakL.load(std::memory_order_relaxed); }
+    [[nodiscard]] float getOutputPeakR() const noexcept { return m_outputPeakR.load(std::memory_order_relaxed); }
+
     // Hard Real-Time Mixer Process (Invoked directly from AudioEngine callback)
     void process(const float* const* inputChannelData,
                  int numInputChannels,
@@ -85,6 +95,14 @@ private:
     std::atomic<float> m_masterPeakL{0.0f};
     std::atomic<float> m_masterPeakR{0.0f};
     std::atomic<bool> m_masterClipOccurred{false};
+
+    // Realtime Diagnostic Telemetry
+    std::atomic<float> m_rawInputPeakCh1{0.0f};
+    std::atomic<float> m_rawInputPeakCh2{0.0f};
+    std::atomic<float> m_mixBusPeakL{0.0f};
+    std::atomic<float> m_mixBusPeakR{0.0f};
+    std::atomic<float> m_outputPeakL{0.0f};
+    std::atomic<float> m_outputPeakR{0.0f};
 
     // Preallocated Mix Bus Buffers (No heap allocation in audio thread)
     alignas(16) float m_mixBusL[MAX_MIXER_BUFFER_SAMPLES];

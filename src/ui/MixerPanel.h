@@ -150,12 +150,13 @@ private:
 /**
  * @brief 4-Channel Mixer Console Panel Component
  */
-class MixerPanel : public juce::Component, public juce::Timer {
+class MixerPanel : public juce::Component, public juce::Timer, public juce::Button::Listener {
 public:
     explicit MixerPanel(std::shared_ptr<audio::AudioEngine> engine);
     ~MixerPanel() override;
 
     void timerCallback() override;
+    void buttonClicked(juce::Button* button) override;
     void resized() override;
     void paint(juce::Graphics& g) override;
 
@@ -166,6 +167,7 @@ private:
     // Header Components
     juce::Label m_titleLabel;
     juce::Label m_statusBadge;
+    juce::TextButton m_audioToggleButton;
 
     // 4 Channel Strips
     std::unique_ptr<MonoChannelStrip> m_ch1Strip;

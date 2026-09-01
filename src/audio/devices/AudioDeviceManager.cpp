@@ -307,8 +307,17 @@ public:
         setup.inputDeviceName = targetDeviceName;
         setup.sampleRate = requestedConfig.sampleRate;
         setup.bufferSize = static_cast<int>(requestedConfig.bufferSize);
-        setup.useDefaultInputChannels = true;
-        setup.useDefaultOutputChannels = true;
+
+        // Explicitly enable input and output channels (do not rely on driver default channel bitmasks)
+        setup.useDefaultInputChannels = false;
+        setup.inputChannels.clear();
+        const int requestedIns = (requestedConfig.inputChannelCount > 0) ? static_cast<int>(requestedConfig.inputChannelCount) : 2;
+        setup.inputChannels.setRange(0, requestedIns, true);
+
+        setup.useDefaultOutputChannels = false;
+        setup.outputChannels.clear();
+        const int requestedOuts = (requestedConfig.outputChannelCount > 0) ? static_cast<int>(requestedConfig.outputChannelCount) : 2;
+        setup.outputChannels.setRange(0, requestedOuts, true);
 
         // 6. Perform real device initialization via JUCE and capture exact error string
         const juce::String juceError = m_juceManager.setAudioDeviceSetup(setup, true);
@@ -506,12 +515,11 @@ private:
     // =========================================================================
     // juce::AudioIODeviceCallback Realtime Implementation
     // =========================================================================
-    void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
-                                         int numInputChannels,
-                                         float* const* outputChannelData,
-                                         int numOutputChannels,
-                                         int numSamples,
-                                         const juce::AudioIODeviceCallbackContext& /*context*/) override
+    void audioDeviceIOCallback(const float* const* inputChannelData,
+                               int numInputChannels,
+                               float* const* outputChannelData,
+                               int numOutputChannels,
+                               int numSamples) override
     {
         if (m_activeCallback != nullptr) {
             m_activeCallback->audioDeviceIOCallback(inputChannelData,
@@ -520,6 +528,16 @@ private:
                                                     numOutputChannels,
                                                     numSamples);
         }
+    }
+
+    void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
+                                         int numInputChannels,
+                                         float* const* outputChannelData,
+                                         int numOutputChannels,
+                                         int numSamples,
+                                         const juce::AudioIODeviceCallbackContext& /*context*/) override
+    {
+        audioDeviceIOCallback(inputChannelData, numInputChannels, outputChannelData, numOutputChannels, numSamples);
     }
 
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override {

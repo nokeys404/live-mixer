@@ -17,7 +17,10 @@ void LiveMixerApplication::initialise(const juce::String& /*commandLine*/) {
     defaultConfig.inputChannelCount = 2;
     defaultConfig.outputChannelCount = 2;
 
-    m_audioEngine->initialize(defaultConfig);
+    bool initOk = m_audioEngine->initialize(defaultConfig);
+    if (initOk) {
+        m_audioEngine->start();
+    }
 
     // 4. Create and show main window
     m_mainWindow = std::make_unique<MainWindow>(getApplicationName(), m_audioEngine);

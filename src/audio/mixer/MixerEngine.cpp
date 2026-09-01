@@ -37,16 +37,45 @@ void MixerEngine::process(const float* const* inputChannelData,
     const bool ch2AudibleMute = hasAnySolo && !ch2Solo;
     const bool ch34AudibleMute = hasAnySolo && !ch34Solo;
 
-    // 3. Resolve Input Pointers
+    // 3. Resolve Input Pointers & Compute Raw Input Peaks
     const float* in0 = (numInputChannels > 0 && inputChannelData != nullptr) ? inputChannelData[0] : nullptr;
     const float* in1 = (numInputChannels > 1 && inputChannelData != nullptr) ? inputChannelData[1] : nullptr;
-    const float* in2 = (numInputChannels > 2 && inputChannelData != nullptr) ? inputChannelData[2] : in0;
-    const float* in3 = (numInputChannels > 3 && inputChannelData != nullptr) ? inputChannelData[3] : in1;
+    const float* in2 = (numInputChannels > 2 && inputChannelData != nullptr) ? inputChannelData[2] : nullptr;
+    const float* in3 = (numInputChannels > 3 && inputChannelData != nullptr) ? inputChannelData[3] : nullptr;
+
+    float rawPeakCh1 = 0.0f;
+    float rawPeakCh2 = 0.0f;
+    if (in0 != nullptr) {
+        for (int i = 0; i < safeSamples; ++i) {
+            const float absVal = std::abs(in0[i]);
+            if (absVal > rawPeakCh1) rawPeakCh1 = absVal;
+        }
+    }
+    if (in1 != nullptr) {
+        for (int i = 0; i < safeSamples; ++i) {
+            const float absVal = std::abs(in1[i]);
+            if (absVal > rawPeakCh2) rawPeakCh2 = absVal;
+        }
+    }
+    m_rawInputPeakCh1.store(rawPeakCh1, std::memory_order_relaxed);
+    m_rawInputPeakCh2.store(rawPeakCh2, std::memory_order_relaxed);
 
     // 4. Process Channels into Mix Bus
     m_ch1.process(in0, m_mixBusL, m_mixBusR, safeSamples, ch1AudibleMute);
     m_ch2.process(in1, m_mixBusL, m_mixBusR, safeSamples, ch2AudibleMute);
     m_ch34.process(in2, in3, m_mixBusL, m_mixBusR, safeSamples, ch34AudibleMute);
+
+    // Measure Mix Bus Summing Peaks
+    float mixPeakL = 0.0f;
+    float mixPeakR = 0.0f;
+    for (int i = 0; i < safeSamples; ++i) {
+        const float valL = std::abs(m_mixBusL[i]);
+        const float valR = std::abs(m_mixBusR[i]);
+        if (valL > mixPeakL) mixPeakL = valL;
+        if (valR > mixPeakR) mixPeakR = valR;
+    }
+    m_mixBusPeakL.store(mixPeakL, std::memory_order_relaxed);
+    m_mixBusPeakR.store(mixPeakR, std::memory_order_relaxed);
 
     // 5. Master Section Processing
     const float masterFaderDb = m_masterFaderDb.load(std::memory_order_relaxed);
@@ -88,9 +117,11 @@ void MixerEngine::process(const float* const* inputChannelData,
         }
     }
 
-    // 7. Publish Master Metering
+    // 7. Publish Master and Output Metering
     m_masterPeakL.store(masterPeakL, std::memory_order_relaxed);
     m_masterPeakR.store(masterPeakR, std::memory_order_relaxed);
+    m_outputPeakL.store(masterPeakL, std::memory_order_relaxed);
+    m_outputPeakR.store(masterPeakR, std::memory_order_relaxed);
 
     if (masterPeakL >= 1.0f || masterPeakR >= 1.0f) {
         m_masterClipOccurred.store(true, std::memory_order_relaxed);

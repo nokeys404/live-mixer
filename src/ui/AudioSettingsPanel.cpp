@@ -455,6 +455,18 @@ void AudioSettingsPanel::updateTelemetryUI() {
         diagText << "\n\nNote:\n" << diag.secondaryDiagnostic;
     }
 
+    auto mixer = m_engine->getMixerEngine();
+    if (mixer && state == audio::AudioState::Running) {
+        diagText << "\n\nRealtime Signal Path Telemetry:\n";
+        diagText << "  Raw ASIO In 1 Peak: " << juce::String(mixer->getRawInputPeakCh1(), 4) << "\n";
+        diagText << "  Raw ASIO In 2 Peak: " << juce::String(mixer->getRawInputPeakCh2(), 4) << "\n";
+        diagText << "  CH1 Processed Peak: " << juce::String(mixer->getCh1ProcessedPeak(), 4) << "\n";
+        diagText << "  CH2 Processed Peak: " << juce::String(mixer->getCh2ProcessedPeak(), 4) << "\n";
+        diagText << "  Mix Bus L/R Peak:   " << juce::String(mixer->getMixBusPeakL(), 4) << " / " << juce::String(mixer->getMixBusPeakR(), 4) << "\n";
+        diagText << "  Master Out L/R Peak: " << juce::String(mixer->getMasterPeakL(), 4) << " / " << juce::String(mixer->getMasterPeakR(), 4) << "\n";
+        diagText << "  ASIO Out L/R Peak:  " << juce::String(mixer->getOutputPeakL(), 4) << " / " << juce::String(mixer->getOutputPeakR(), 4);
+    }
+
     if (m_diagTextEditor.getText() != diagText) {
         m_diagTextEditor.setText(diagText, false);
     }

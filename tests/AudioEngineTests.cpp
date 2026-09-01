@@ -365,6 +365,39 @@ void testDiagnosticInfoRetrieval() {
     TEST_ASSERT(diag.activeOutputChannels == 2, "Diagnostic reports 2 output channels");
 }
 
+void testRealtimeTelemetryAndSignalPath() {
+    std::cout << "Running testRealtimeTelemetryAndSignalPath...\n";
+    livemixer::mixer::MixerEngine engine;
+
+    const int numSamples = 128;
+    float in0[numSamples];
+    float in1[numSamples];
+    float out0[numSamples];
+    float out1[numSamples];
+
+    for (int i = 0; i < numSamples; ++i) {
+        in0[i] = 0.8f;
+        in1[i] = -0.5f;
+        out0[i] = 0.0f;
+        out1[i] = 0.0f;
+    }
+
+    const float* inChannels[2] = { in0, in1 };
+    float* outChannels[2] = { out0, out1 };
+
+    // Process block
+    engine.process(inChannels, 2, outChannels, 2, numSamples);
+
+    // Verify diagnostic peak telemetry calculation
+    TEST_ASSERT(std::abs(engine.getRawInputPeakCh1() - 0.8f) < 0.001f, "Raw Input CH1 peak correctly tracked as 0.8");
+    TEST_ASSERT(std::abs(engine.getRawInputPeakCh2() - 0.5f) < 0.001f, "Raw Input CH2 peak correctly tracked as 0.5");
+    TEST_ASSERT(engine.getCh1ProcessedPeak() > 0.5f, "CH1 processed peak correctly tracked");
+    TEST_ASSERT(engine.getCh2ProcessedPeak() > 0.3f, "CH2 processed peak correctly tracked");
+    TEST_ASSERT(engine.getMixBusPeakL() > 0.0f && engine.getMixBusPeakR() > 0.0f, "Mix bus peaks non-zero");
+    TEST_ASSERT(engine.getMasterPeakL() > 0.0f && engine.getMasterPeakR() > 0.0f, "Master output peaks non-zero");
+    TEST_ASSERT(engine.getOutputPeakL() > 0.0f && engine.getOutputPeakR() > 0.0f, "Output peaks non-zero");
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << "LIVE MIXER V0.1 FOUNDATION TEST SUITE\n";
@@ -378,6 +411,7 @@ int main() {
     testMonoChannelProcessingAndPanning();
     testStereoChannelProcessingAndBalance();
     testMixerEngineSoloLogic();
+    testRealtimeTelemetryAndSignalPath();
     testDeviceDisconnectHandling();
     testErrorDiagnostics();
     testExactErrorStringPreservation();

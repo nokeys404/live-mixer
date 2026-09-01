@@ -662,6 +662,13 @@ MixerPanel::MixerPanel(std::shared_ptr<audio::AudioEngine> engine)
     m_titleLabel.setColour(juce::Label::textColourId, juce::Colour(0xfffafafa));
     addAndMakeVisible(m_titleLabel);
 
+    // Audio Engine Start/Stop Toggle Button
+    m_audioToggleButton.setButtonText("START AUDIO");
+    m_audioToggleButton.addListener(this);
+    m_audioToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff18181b));
+    m_audioToggleButton.setColour(juce::TextButton::textColourOffId, juce::Colour(0xfffafafa));
+    addAndMakeVisible(m_audioToggleButton);
+
     // Status Badge
     m_statusBadge.setText(juce::CharPointer_UTF8("\xe2\x97\x8f READY"), juce::dontSendNotification);
     m_statusBadge.setFont(juce::Font(12.0f, juce::Font::bold));
@@ -689,6 +696,7 @@ MixerPanel::MixerPanel(std::shared_ptr<audio::AudioEngine> engine)
 }
 
 MixerPanel::~MixerPanel() {
+    m_audioToggleButton.removeListener(this);
     stopTimer();
 }
 
@@ -700,10 +708,16 @@ void MixerPanel::timerCallback() {
 
         if (state == audio::AudioState::Running) {
             m_statusBadge.setColour(juce::Label::textColourId, juce::Colour(0xff10b981)); // Green
+            m_audioToggleButton.setButtonText("STOP AUDIO");
+            m_audioToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff27272a));
         } else if (state == audio::AudioState::Error) {
             m_statusBadge.setColour(juce::Label::textColourId, juce::Colour(0xffef4444)); // Red
+            m_audioToggleButton.setButtonText("RETRY AUDIO");
+            m_audioToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xffdc2626));
         } else {
             m_statusBadge.setColour(juce::Label::textColourId, juce::Colour(0xffe4e4e7));
+            m_audioToggleButton.setButtonText("START AUDIO");
+            m_audioToggleButton.setColour(juce::TextButton::buttonColourId, juce::Colour(0xff059669));
         }
     }
 
@@ -711,6 +725,17 @@ void MixerPanel::timerCallback() {
     if (m_ch2Strip) m_ch2Strip->updateTelemetry();
     if (m_ch34Strip) m_ch34Strip->updateTelemetry();
     if (m_masterStrip) m_masterStrip->updateTelemetry();
+}
+
+void MixerPanel::buttonClicked(juce::Button* button) {
+    if (button == &m_audioToggleButton && m_audioEngine) {
+        const auto state = m_audioEngine->getState();
+        if (state == audio::AudioState::Running) {
+            m_audioEngine->stop();
+        } else {
+            m_audioEngine->start();
+        }
+    }
 }
 
 void MixerPanel::paint(juce::Graphics& g) {
@@ -722,7 +747,9 @@ void MixerPanel::resized() {
 
     // Top Header Row
     auto headerRow = bounds.removeFromTop(28);
-    m_titleLabel.setBounds(headerRow.removeFromLeft(200));
+    m_titleLabel.setBounds(headerRow.removeFromLeft(160));
+    m_audioToggleButton.setBounds(headerRow.removeFromLeft(110));
+    headerRow.removeFromLeft(10);
     m_statusBadge.setBounds(headerRow);
     bounds.removeFromTop(8);
 
