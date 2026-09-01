@@ -9,10 +9,11 @@ MainWindow::MainWindow(juce::String name, std::shared_ptr<audio::AudioEngine> en
 {
     setUsingNativeTitleBar(true);
     m_settingsPanel = std::make_unique<ui::AudioSettingsPanel>(std::move(engine));
-    setContentNonOwned(m_settingsPanel.get(), true);
+    setContentNonOwned(m_settingsPanel.get(), false);
 
-    setResizable(false, false);
-    centreWithSize(520, 840);
+    setResizable(true, true);
+    setResizeLimits(640, 440, 1920, 1200);
+    centreWithSize(780, 520);
     setVisible(true);
 }
 
@@ -25,3 +26,4 @@ void MainWindow::closeButtonPressed() {
 }
 
 } // namespace livemixer::app
+

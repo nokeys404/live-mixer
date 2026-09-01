@@ -51,7 +51,7 @@ AudioSettingsPanel::AudioSettingsPanel(std::shared_ptr<audio::AudioEngine> engin
     // Audio Status
     m_audioStatusTitle.setText("Audio Status:", juce::dontSendNotification);
     addAndMakeVisible(m_audioStatusTitle);
-    m_audioStatusValue.setText("● READY", juce::dontSendNotification);
+    m_audioStatusValue.setText(juce::CharPointer_UTF8("\xe2\x97\x8f READY"), juce::dontSendNotification);
     addAndMakeVisible(m_audioStatusValue);
 
     // Diagnostic Box - Always visible permanent section
@@ -135,52 +135,126 @@ void AudioSettingsPanel::paint(juce::Graphics& g) {
 
 void AudioSettingsPanel::resized() {
     auto bounds = getLocalBounds().reduced(16);
-    const int itemHeight = 28;
-    const int spacing = 6;
-
+    
+    // Title at the top
     m_titleLabel.setBounds(bounds.removeFromTop(32));
-    bounds.removeFromTop(spacing);
+    bounds.removeFromTop(10);
 
-    auto layoutRow = [&](juce::Label& label, juce::Component& control) {
-        auto row = bounds.removeFromTop(itemHeight);
-        label.setBounds(row.removeFromLeft(140));
-        control.setBounds(row);
+    if (bounds.getWidth() >= 520) {
+        // Two-column responsive desktop layout
+        const int colGap = 20;
+        const int totalWidth = bounds.getWidth();
+        const int leftColWidth = (totalWidth - colGap) / 2;
+        
+        auto leftCol = bounds.removeFromLeft(leftColWidth);
+        bounds.removeFromLeft(colGap);
+        auto rightCol = bounds;
+
+        const int itemHeight = 28;
+        const int rowSpacing = 6;
+
+        auto layoutLeftRow = [&](juce::Label& label, juce::Component& control, int labelWidth = 100) {
+            auto row = leftCol.removeFromTop(itemHeight);
+            label.setBounds(row.removeFromLeft(labelWidth));
+            control.setBounds(row);
+            leftCol.removeFromTop(rowSpacing);
+        };
+
+        // Left Column: Audio Device Configuration
+        layoutLeftRow(m_driverLabel, m_driverComboBox, 100);
+        layoutLeftRow(m_deviceLabel, m_deviceComboBox, 100);
+        layoutLeftRow(m_sampleRateLabel, m_sampleRateComboBox, 100);
+        layoutLeftRow(m_bufferSizeLabel, m_bufferSizeComboBox, 100);
+
+        leftCol.removeFromTop(6);
+
+        // Start / Stop Buttons side-by-side
+        auto buttonRow = leftCol.removeFromTop(34);
+        const int btnGap = 8;
+        const int btnWidth = (buttonRow.getWidth() - btnGap) / 2;
+        m_startAudioButton.setBounds(buttonRow.removeFromLeft(btnWidth));
+        buttonRow.removeFromLeft(btnGap);
+        m_stopAudioButton.setBounds(buttonRow);
+        leftCol.removeFromTop(rowSpacing);
+
+        // ASIO Control Panel Button
+        m_asioControlPanelButton.setBounds(leftCol.removeFromTop(30));
+        leftCol.removeFromTop(10);
+
+        // Telemetry Metrics in Left Column
+        const int metricHeight = 22;
+        const int metricSpacing = 4;
+        auto layoutMetric = [&](juce::Label& title, juce::Label& value) {
+            auto row = leftCol.removeFromTop(metricHeight);
+            title.setBounds(row.removeFromLeft(120));
+            value.setBounds(row);
+            leftCol.removeFromTop(metricSpacing);
+        };
+
+        layoutMetric(m_bufferDurationTitle, m_bufferDurationValue);
+        layoutMetric(m_inputLatencyTitle, m_inputLatencyValue);
+        layoutMetric(m_outputLatencyTitle, m_outputLatencyValue);
+        layoutMetric(m_processingTitle, m_processingValue);
+        layoutMetric(m_xrunsTitle, m_xrunsValue);
+
+        // Right Column: Audio Status, Channel Topologies & Full Height Diagnostics
+        auto layoutRightRow = [&](juce::Label& label, juce::Component& control, int labelWidth = 120) {
+            auto row = rightCol.removeFromTop(itemHeight);
+            label.setBounds(row.removeFromLeft(labelWidth));
+            control.setBounds(row);
+            rightCol.removeFromTop(rowSpacing);
+        };
+
+        layoutRightRow(m_audioStatusTitle, m_audioStatusValue, 120);
+        layoutRightRow(m_inputChannelsTitle, m_inputChannelsValue, 120);
+        layoutRightRow(m_outputChannelsTitle, m_outputChannelsValue, 120);
+
+        rightCol.removeFromTop(6);
+        m_diagTitle.setBounds(rightCol.removeFromTop(20));
+        rightCol.removeFromTop(4);
+        m_diagTextEditor.setBounds(rightCol);
+    } else {
+        // Single column fallback for narrow sizes
+        const int itemHeight = 26;
+        const int spacing = 4;
+
+        auto layoutRow = [&](juce::Label& label, juce::Component& control) {
+            auto row = bounds.removeFromTop(itemHeight);
+            label.setBounds(row.removeFromLeft(120));
+            control.setBounds(row);
+            bounds.removeFromTop(spacing);
+        };
+
+        layoutRow(m_driverLabel, m_driverComboBox);
+        layoutRow(m_deviceLabel, m_deviceComboBox);
+        layoutRow(m_sampleRateLabel, m_sampleRateComboBox);
+        layoutRow(m_bufferSizeLabel, m_bufferSizeComboBox);
+
+        layoutRow(m_inputChannelsTitle, m_inputChannelsValue);
+        layoutRow(m_outputChannelsTitle, m_outputChannelsValue);
+        layoutRow(m_audioStatusTitle, m_audioStatusValue);
+
+        auto buttonRow = bounds.removeFromTop(32);
+        const int btnWidth = (buttonRow.getWidth() - 8) / 2;
+        m_startAudioButton.setBounds(buttonRow.removeFromLeft(btnWidth));
+        buttonRow.removeFromLeft(8);
+        m_stopAudioButton.setBounds(buttonRow);
         bounds.removeFromTop(spacing);
-    };
 
-    layoutRow(m_driverLabel, m_driverComboBox);
-    layoutRow(m_deviceLabel, m_deviceComboBox);
-    layoutRow(m_sampleRateLabel, m_sampleRateComboBox);
-    layoutRow(m_bufferSizeLabel, m_bufferSizeComboBox);
+        m_asioControlPanelButton.setBounds(bounds.removeFromTop(28));
+        bounds.removeFromTop(spacing);
 
-    layoutRow(m_inputChannelsTitle, m_inputChannelsValue);
-    layoutRow(m_outputChannelsTitle, m_outputChannelsValue);
-    layoutRow(m_audioStatusTitle, m_audioStatusValue);
+        m_diagTitle.setBounds(bounds.removeFromTop(18));
+        bounds.removeFromTop(2);
+        m_diagTextEditor.setBounds(bounds.removeFromTop(120));
+        bounds.removeFromTop(spacing);
 
-    // Dedicated permanent diagnostic section directly below Audio Status
-    auto errTitleRow = bounds.removeFromTop(20);
-    m_diagTitle.setBounds(errTitleRow);
-    bounds.removeFromTop(2);
-
-    auto errValRow = bounds.removeFromTop(180);
-    m_diagTextEditor.setBounds(errValRow);
-    bounds.removeFromTop(spacing);
-
-    layoutRow(m_bufferDurationTitle, m_bufferDurationValue);
-    layoutRow(m_inputLatencyTitle, m_inputLatencyValue);
-    layoutRow(m_outputLatencyTitle, m_outputLatencyValue);
-    layoutRow(m_processingTitle, m_processingValue);
-    layoutRow(m_xrunsTitle, m_xrunsValue);
-
-    bounds.removeFromTop(6);
-    auto buttonRow = bounds.removeFromTop(36);
-    const int buttonWidth = (buttonRow.getWidth() - 10) / 2;
-    m_startAudioButton.setBounds(buttonRow.removeFromLeft(buttonWidth));
-    buttonRow.removeFromLeft(10);
-    m_stopAudioButton.setBounds(buttonRow);
-
-    bounds.removeFromTop(spacing);
-    m_asioControlPanelButton.setBounds(bounds.removeFromTop(32));
+        layoutRow(m_bufferDurationTitle, m_bufferDurationValue);
+        layoutRow(m_inputLatencyTitle, m_inputLatencyValue);
+        layoutRow(m_outputLatencyTitle, m_outputLatencyValue);
+        layoutRow(m_processingTitle, m_processingValue);
+        layoutRow(m_xrunsTitle, m_xrunsValue);
+    }
 }
 
 void AudioSettingsPanel::refreshDriverList() {
@@ -282,7 +356,7 @@ void AudioSettingsPanel::updateTelemetryUI() {
     const auto config = m_engine->getCurrentConfig();
 
     // Format Audio Status
-    juce::String statusText = "● " + juce::String(audio::audioStateToString(state)).toUpperCase();
+    juce::String statusText = juce::String(juce::CharPointer_UTF8("\xe2\x97\x8f ")) + juce::String(audio::audioStateToString(state)).toUpperCase();
     m_audioStatusValue.setText(statusText, juce::dontSendNotification);
 
     if (state == audio::AudioState::Running) {
