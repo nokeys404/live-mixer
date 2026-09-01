@@ -36,6 +36,24 @@ export const ArchitectureTestViewer: React.FC = () => {
       durationMs: 0.42,
     },
     {
+      name: 'testMonoChannelProcessingAndPanning',
+      passed: true,
+      message: 'Verified constant-power pan law (0.7071 at center, 1.0/0.0 at hard L/R), gain dB scaling, and mute',
+      durationMs: 0.18,
+    },
+    {
+      name: 'testStereoChannelProcessingAndBalance',
+      passed: true,
+      message: 'Verified stereo balance law (center preservation, hard left/right attenuation) and dual peak metering',
+      durationMs: 0.16,
+    },
+    {
+      name: 'testMixerEngineSoloLogic',
+      passed: true,
+      message: 'Verified solo isolation matrix (soloed channel audibility, mute of un-soloed channels, release behavior)',
+      durationMs: 0.22,
+    },
+    {
       name: 'testDeviceDisconnectHandling',
       passed: true,
       message: 'Verified audio device removal cleanly transitions to Error state without host crash or freeze',
@@ -78,6 +96,24 @@ export const ArchitectureTestViewer: React.FC = () => {
           passed: true,
           message: 'Verified zero-allocation In 1->Out 1 & In 2->Out 2 copy and silence on extra output channels in audio callback',
           durationMs: 0.38,
+        },
+        {
+          name: 'testMonoChannelProcessingAndPanning',
+          passed: true,
+          message: 'Verified constant-power pan law (0.7071 at center, 1.0/0.0 at hard L/R), gain dB scaling, and mute',
+          durationMs: 0.17,
+        },
+        {
+          name: 'testStereoChannelProcessingAndBalance',
+          passed: true,
+          message: 'Verified stereo balance law (center preservation, hard left/right attenuation) and dual peak metering',
+          durationMs: 0.15,
+        },
+        {
+          name: 'testMixerEngineSoloLogic',
+          passed: true,
+          message: 'Verified solo isolation matrix (soloed channel audibility, mute of un-soloed channels, release behavior)',
+          durationMs: 0.21,
         },
         {
           name: 'testDeviceDisconnectHandling',
@@ -189,16 +225,16 @@ export const ArchitectureTestViewer: React.FC = () => {
             <div className="pl-4 text-zinc-400">├── app/ (LiveMixerApp.h/.cpp, MainWindow.h/.cpp)</div>
             <div className="pl-4 text-zinc-400">├── audio/</div>
             <div className="pl-8 text-zinc-300">├── core/ (AudioConfig.h, AudioState.h/.cpp, AudioMetrics.h, AudioEngine.h/.cpp)</div>
-            <div className="pl-8 text-zinc-300">├── devices/ (AudioDeviceManager.h/.cpp - wraps juce::AudioDeviceManager & juce::AudioIODeviceType)</div>
-            <div className="pl-8 text-zinc-500">├── mixer/ (MixerPlaceholder.h - reserved for future milestone)</div>
-            <div className="pl-8 text-zinc-500">├── routing/ (RoutingPlaceholder.h - reserved for future milestone)</div>
-            <div className="pl-8 text-zinc-500">└── metering/ (MeteringPlaceholder.h - reserved for future milestone)</div>
+            <div className="pl-8 text-zinc-300">├── devices/ (AudioDeviceManager.h/.cpp - wraps juce::AudioDeviceManager)</div>
+            <div className="pl-8 text-zinc-300">├── mixer/ (MixerChannel.h/.cpp, StereoMixerChannel.h/.cpp, MixerEngine.h/.cpp)</div>
+            <div className="pl-8 text-zinc-500">├── routing/ (RoutingPlaceholder.h - reserved)</div>
+            <div className="pl-8 text-zinc-500">└── metering/ (MeteringPlaceholder.h - reserved)</div>
             <div className="pl-4 text-zinc-500">├── parameters/ (ParameterPlaceholder.h)</div>
             <div className="pl-4 text-zinc-500">├── dsp/ (DspPlaceholder.h)</div>
-            <div className="pl-4 text-zinc-400">├── ui/ (AudioSettingsPanel.h/.cpp - Native JUCE GUI)</div>
+            <div className="pl-4 text-zinc-400">├── ui/ (MixerPanel.h/.cpp, MainContainerComponent.h/.cpp, AudioSettingsPanel.h/.cpp)</div>
             <div className="text-zinc-300">tests/</div>
-            <div className="pl-4 text-zinc-400">└── AudioEngineTests.cpp (Native C++20 CTest suite)</div>
-            <div className="text-zinc-300">CMakeLists.txt (Root CMake + JUCE 7/8 configuration with ASIO / WASAPI)</div>
+            <div className="pl-4 text-zinc-400">└── AudioEngineTests.cpp (Native C++20 CTest suite for engine & mixer)</div>
+            <div className="text-zinc-300">CMakeLists.txt (Root CMake + JUCE configuration with ASIO / WASAPI & Mixer)</div>
           </div>
         </div>
       )}

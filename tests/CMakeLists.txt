@@ -3,6 +3,9 @@ add_executable(LiveMixerTests
     ../src/audio/core/AudioState.cpp
     ../src/audio/core/AudioEngine.cpp
     ../src/audio/devices/AudioDeviceManager.cpp
+    ../src/audio/mixer/MixerChannel.cpp
+    ../src/audio/mixer/StereoMixerChannel.cpp
+    ../src/audio/mixer/MixerEngine.cpp
 )
 
 target_include_directories(LiveMixerTests PRIVATE

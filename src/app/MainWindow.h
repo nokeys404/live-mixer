@@ -1,7 +1,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
-#include "../ui/AudioSettingsPanel.h"
+#include "../ui/MainContainerComponent.h"
 #include "../audio/core/AudioEngine.h"
 #include <memory>
 
@@ -15,7 +15,7 @@ public:
     void closeButtonPressed() override;
 
 private:
-    std::unique_ptr<ui::AudioSettingsPanel> m_settingsPanel;
+    std::unique_ptr<ui::MainContainerComponent> m_mainContainer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainWindow)
 };

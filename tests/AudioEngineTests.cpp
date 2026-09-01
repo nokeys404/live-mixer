@@ -3,6 +3,7 @@
 #include "../src/audio/core/AudioMetrics.h"
 #include "../src/audio/core/AudioEngine.h"
 #include "../src/audio/devices/AudioDeviceManager.h"
+#include "../src/audio/mixer/MixerEngine.h"
 #include <iostream>
 #include <cassert>
 #include <cmath>
@@ -139,12 +140,20 @@ void testRealtimePassthroughAndSilence() {
     const float* inChannels[2] = { inLeft, inRight };
     float* outChannels[4] = { outLeft, outRight, outExtra1, outExtra2 };
 
+    // Set discrete Left / Right panning for pure In 1 -> Out 1, In 2 -> Out 2 test
+    auto mixer = engine->getMixerEngine();
+    if (mixer) {
+        mixer->getChannel1().setPan(-1.0f); // Hard Left
+        mixer->getChannel2().setPan(1.0f);  // Hard Right
+        mixer->getStereoChannel().setMute(true); // Isolate CH1 and CH2
+    }
+
     // Execute realtime audio callback
     engine->audioDeviceIOCallback(inChannels, 2, outChannels, 4, numSamples);
 
     // Verify passthrough accuracy: In 1 -> Out 1, In 2 -> Out 2
-    TEST_ASSERT(outLeft[0] == 0.75f && outLeft[127] == 0.75f, "Hardware In 1 successfully passed to Out 1");
-    TEST_ASSERT(outRight[0] == -0.5f && outRight[127] == -0.5f, "Hardware In 2 successfully passed to Out 2");
+    TEST_ASSERT(std::abs(outLeft[0] - 0.75f) < 0.001f && std::abs(outLeft[127] - 0.75f) < 0.001f, "Hardware In 1 successfully passed to Out 1");
+    TEST_ASSERT(std::abs(outRight[0] - (-0.5f)) < 0.001f && std::abs(outRight[127] - (-0.5f)) < 0.001f, "Hardware In 2 successfully passed to Out 2");
 
     // Verify silence on unused extra output channels
     TEST_ASSERT(outExtra1[0] == 0.0f && outExtra1[127] == 0.0f, "Extra output channel 3 written with silence");
@@ -156,6 +165,123 @@ void testRealtimePassthroughAndSilence() {
 
     engine->stop();
     TEST_ASSERT(engine->getState() == AudioState::Ready, "Engine state returns to Ready after stop");
+}
+
+void testMonoChannelProcessingAndPanning() {
+    std::cout << "Running testMonoChannelProcessingAndPanning...\n";
+    livemixer::mixer::MixerChannel ch(1, "CH1", "In 1", 0);
+
+    const int numSamples = 64;
+    float in[numSamples];
+    float busL[numSamples];
+    float busR[numSamples];
+
+    for (int i = 0; i < numSamples; ++i) {
+        in[i] = 1.0f;
+        busL[i] = 0.0f;
+        busR[i] = 0.0f;
+    }
+
+    // Test Center Pan (Constant Power: 0.7071 on both L and R)
+    ch.setPan(0.0f);
+    ch.setGainDb(0.0f);
+    ch.setFaderDb(0.0f);
+    ch.process(in, busL, busR, numSamples, false);
+
+    TEST_ASSERT(std::abs(busL[0] - 0.7071f) < 0.01f, "Center pan left bus produces ~0.7071");
+    TEST_ASSERT(std::abs(busR[0] - 0.7071f) < 0.01f, "Center pan right bus produces ~0.7071");
+    TEST_ASSERT(ch.getPeakLevel() > 0.7f, "Peak level recorded correctly");
+
+    // Test Hard Left
+    std::memset(busL, 0, sizeof(busL));
+    std::memset(busR, 0, sizeof(busR));
+    ch.setPan(-1.0f);
+    ch.process(in, busL, busR, numSamples, false);
+    TEST_ASSERT(std::abs(busL[0] - 1.0f) < 0.01f, "Hard left pan produces 1.0 on Left");
+    TEST_ASSERT(std::abs(busR[0] - 0.0f) < 0.001f, "Hard left pan produces 0.0 on Right");
+
+    // Test Hard Right
+    std::memset(busL, 0, sizeof(busL));
+    std::memset(busR, 0, sizeof(busR));
+    ch.setPan(1.0f);
+    ch.process(in, busL, busR, numSamples, false);
+    TEST_ASSERT(std::abs(busL[0] - 0.0f) < 0.001f, "Hard right pan produces 0.0 on Left");
+    TEST_ASSERT(std::abs(busR[0] - 1.0f) < 0.01f, "Hard right pan produces 1.0 on Right");
+
+    // Test Mute
+    std::memset(busL, 0, sizeof(busL));
+    std::memset(busR, 0, sizeof(busR));
+    ch.setMute(true);
+    ch.process(in, busL, busR, numSamples, false);
+    TEST_ASSERT(busL[0] == 0.0f && busR[0] == 0.0f, "Muted channel produces silence");
+}
+
+void testStereoChannelProcessingAndBalance() {
+    std::cout << "Running testStereoChannelProcessingAndBalance...\n";
+    livemixer::mixer::StereoMixerChannel ch(3, "CH3/4", "In 3/4", 2, 3);
+
+    const int numSamples = 64;
+    float inL[numSamples];
+    float inR[numSamples];
+    float busL[numSamples];
+    float busR[numSamples];
+
+    for (int i = 0; i < numSamples; ++i) {
+        inL[i] = 1.0f;
+        inR[i] = 0.5f;
+        busL[i] = 0.0f;
+        busR[i] = 0.0f;
+    }
+
+    // Center Balance
+    ch.setBalance(0.0f);
+    ch.process(inL, inR, busL, busR, numSamples, false);
+    TEST_ASSERT(std::abs(busL[0] - 1.0f) < 0.001f, "Stereo center balance preserves left channel");
+    TEST_ASSERT(std::abs(busR[0] - 0.5f) < 0.001f, "Stereo center balance preserves right channel");
+    TEST_ASSERT(ch.getPeakLevelL() == 1.0f, "Left peak is 1.0");
+    TEST_ASSERT(ch.getPeakLevelR() == 0.5f, "Right peak is 0.5");
+
+    // Balance Hard Left (L at 1.0, R attenuated to 0)
+    std::memset(busL, 0, sizeof(busL));
+    std::memset(busR, 0, sizeof(busR));
+    ch.setBalance(-1.0f);
+    ch.process(inL, inR, busL, busR, numSamples, false);
+    TEST_ASSERT(std::abs(busL[0] - 1.0f) < 0.001f, "Stereo hard left retains left channel");
+    TEST_ASSERT(std::abs(busR[0] - 0.0f) < 0.001f, "Stereo hard left silences right channel");
+}
+
+void testMixerEngineSoloLogic() {
+    std::cout << "Running testMixerEngineSoloLogic...\n";
+    livemixer::mixer::MixerEngine engine;
+
+    const int numSamples = 64;
+    float in0[numSamples], in1[numSamples], in2[numSamples], in3[numSamples];
+    float out0[numSamples], out1[numSamples];
+
+    for (int i = 0; i < numSamples; ++i) {
+        in0[i] = 0.6f;
+        in1[i] = 0.4f;
+        in2[i] = 0.2f;
+        in3[i] = 0.2f;
+        out0[i] = 0.0f;
+        out1[i] = 0.0f;
+    }
+
+    const float* inChannels[4] = { in0, in1, in2, in3 };
+    float* outChannels[2] = { out0, out1 };
+
+    // Solo CH1 only
+    engine.getChannel1().setSolo(true);
+    engine.getChannel1().setPan(-1.0f); // Hard Left
+
+    engine.process(inChannels, 4, outChannels, 2, numSamples);
+
+    // CH1 (0.6f) should be heard on Out 0; CH2 and CH3/4 must be muted
+    TEST_ASSERT(std::abs(out0[0] - 0.6f) < 0.01f, "Soloed CH1 is audible on Out 0");
+    TEST_ASSERT(std::abs(out1[0] - 0.0f) < 0.001f, "Un-soloed channels are silent on Out 1");
+
+    // Release Solo
+    engine.getChannel1().setSolo(false);
 }
 
 void testDeviceDisconnectHandling() {
@@ -249,6 +375,9 @@ int main() {
     testAudioStateTransitions();
     testDeviceConfigurationValidation();
     testRealtimePassthroughAndSilence();
+    testMonoChannelProcessingAndPanning();
+    testStereoChannelProcessingAndBalance();
+    testMixerEngineSoloLogic();
     testDeviceDisconnectHandling();
     testErrorDiagnostics();
     testExactErrorStringPreservation();

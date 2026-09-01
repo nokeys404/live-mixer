@@ -4,6 +4,7 @@
 #include "AudioState.h"
 #include "AudioMetrics.h"
 #include "../devices/AudioDeviceManager.h"
+#include "../mixer/MixerEngine.h"
 #include <memory>
 #include <vector>
 #include <chrono>
@@ -42,6 +43,7 @@ public:
     [[nodiscard]] std::string getLastError() const;
     [[nodiscard]] AudioDeviceDiagnostic getDiagnosticInfo() const;
     [[nodiscard]] std::shared_ptr<IAudioDeviceManager> getDeviceManager() const noexcept { return m_deviceManager; }
+    [[nodiscard]] std::shared_ptr<mixer::MixerEngine> getMixerEngine() const noexcept { return m_mixerEngine; }
 
     // Configuration updates
     bool setDriver(DriverType driverType);
@@ -83,6 +85,7 @@ private:
     void reconnectThreadLoop();
 
     std::shared_ptr<IAudioDeviceManager> m_deviceManager;
+    std::shared_ptr<mixer::MixerEngine> m_mixerEngine;
     AudioConfig m_config;
     AudioMetrics m_metrics;
     std::string m_lastErrorMessage;

@@ -7,7 +7,8 @@
 namespace livemixer::audio {
 
 AudioEngine::AudioEngine(std::shared_ptr<IAudioDeviceManager> deviceManager)
-    : m_deviceManager(std::move(deviceManager))
+    : m_deviceManager(std::move(deviceManager)),
+      m_mixerEngine(std::make_shared<mixer::MixerEngine>())
 {
     // Zero out preallocated scratch buffers
     std::memset(m_scratchBuffer, 0, sizeof(m_scratchBuffer));
@@ -419,29 +420,17 @@ void AudioEngine::audioDeviceIOCallback(const float* const* inputChannelData,
     }
 
     const int safeSamples = std::min(numSamples, static_cast<int>(MAX_BUFFER_SAMPLES));
-    const int channelsToProcess = std::min({ numInputChannels, numOutputChannels, static_cast<int>(MAX_SUPPORTED_CHANNELS) });
 
-    // Passthrough: Hardware In 1 -> Out 1, Hardware In 2 -> Out 2
-    for (int ch = 0; ch < channelsToProcess; ++ch) {
-        const float* in = inputChannelData ? inputChannelData[ch] : nullptr;
-        float* out = outputChannelData[ch];
-
-        if (out != nullptr) {
-            if (in != nullptr) {
-                // Realtime safe memory copy
-                std::memcpy(out, in, static_cast<size_t>(safeSamples) * sizeof(float));
-            } else {
-                // Silence if no input channel data
+    // Execute 4-Channel Live Mixer processing
+    if (m_mixerEngine != nullptr) {
+        m_mixerEngine->process(inputChannelData, numInputChannels, outputChannelData, numOutputChannels, safeSamples);
+    } else {
+        // Fallback safety silence
+        for (int ch = 0; ch < numOutputChannels; ++ch) {
+            float* out = outputChannelData[ch];
+            if (out != nullptr) {
                 std::memset(out, 0, static_cast<size_t>(safeSamples) * sizeof(float));
             }
-        }
-    }
-
-    // Clear any remaining output channels (e.g. if numOutputChannels > numInputChannels)
-    for (int ch = channelsToProcess; ch < numOutputChannels; ++ch) {
-        float* out = outputChannelData[ch];
-        if (out != nullptr) {
-            std::memset(out, 0, static_cast<size_t>(safeSamples) * sizeof(float));
         }
     }
 

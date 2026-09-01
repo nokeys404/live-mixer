@@ -40,6 +40,30 @@ export interface AudioMetrics {
   audioState: AudioState;
 }
 
+export interface ChannelStripState {
+  id: number;
+  name: string;
+  source: string;
+  gainDb: number;
+  panOrBalance: number;
+  faderDb: number;
+  muted: boolean;
+  solo: boolean;
+  peakL: number;
+  peakR: number;
+  clipped: boolean;
+}
+
+export interface MasterStripState {
+  name: string;
+  source: string;
+  faderDb: number;
+  muted: boolean;
+  peakL: number;
+  peakR: number;
+  clipped: boolean;
+}
+
 export interface TestResult {
   name: string;
   passed: boolean;

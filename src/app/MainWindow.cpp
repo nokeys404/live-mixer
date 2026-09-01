@@ -8,12 +8,12 @@ MainWindow::MainWindow(juce::String name, std::shared_ptr<audio::AudioEngine> en
                      DocumentWindow::allButtons)
 {
     setUsingNativeTitleBar(true);
-    m_settingsPanel = std::make_unique<ui::AudioSettingsPanel>(std::move(engine));
-    setContentNonOwned(m_settingsPanel.get(), false);
+    m_mainContainer = std::make_unique<ui::MainContainerComponent>(std::move(engine));
+    setContentNonOwned(m_mainContainer.get(), false);
 
     setResizable(true, true);
-    setResizeLimits(640, 440, 1920, 1200);
-    centreWithSize(780, 520);
+    setResizeLimits(680, 460, 1920, 1200);
+    centreWithSize(860, 560);
     setVisible(true);
 }
 

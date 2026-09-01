@@ -91,7 +91,13 @@ target_sources(LiveMixer PRIVATE
     src/audio/devices/AudioDeviceManager.h
     src/audio/devices/AudioDeviceManager.cpp
 
-    # Architecture Placeholders for Future Milestones
+    # Mixer Architecture (Stage 2)
+    src/audio/mixer/MixerChannel.h
+    src/audio/mixer/MixerChannel.cpp
+    src/audio/mixer/StereoMixerChannel.h
+    src/audio/mixer/StereoMixerChannel.cpp
+    src/audio/mixer/MixerEngine.h
+    src/audio/mixer/MixerEngine.cpp
     src/audio/mixer/MixerPlaceholder.h
     src/audio/routing/RoutingPlaceholder.h
     src/audio/metering/MeteringPlaceholder.h
@@ -99,6 +105,10 @@ target_sources(LiveMixer PRIVATE
     src/dsp/DspPlaceholder.h
 
     # User Interface
+    src/ui/MixerPanel.h
+    src/ui/MixerPanel.cpp
+    src/ui/MainContainerComponent.h
+    src/ui/MainContainerComponent.cpp
     src/ui/AudioSettingsPanel.h
     src/ui/AudioSettingsPanel.cpp
 )
