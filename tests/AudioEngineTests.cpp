@@ -416,8 +416,10 @@ void testDriverDiscoveredChannelEnumeration() {
 
     TEST_ASSERT(inChannels.size() == 8, "8 input channels discovered");
     TEST_ASSERT(outChannels.size() == 8, "8 output channels discovered");
-    TEST_ASSERT(inChannels[0].channelIndex == 0, "Input 0 index is 0");
-    TEST_ASSERT(inChannels[7].channelIndex == 7, "Input 7 index is 7");
+    TEST_ASSERT(inChannels[0].deviceChannelIndex == 0, "Input 0 device channel index is 0");
+    TEST_ASSERT(inChannels[7].deviceChannelIndex == 7, "Input 7 device channel index is 7");
+    TEST_ASSERT(inChannels[0].bufferIndex == 0, "Input 0 buffer index is 0");
+    TEST_ASSERT(inChannels[7].bufferIndex == 7, "Input 7 buffer index is 7");
 }
 
 void testExplicitRoutingAndZeroChannelBleed() {
