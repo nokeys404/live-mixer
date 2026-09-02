@@ -557,11 +557,12 @@ private:
     // =========================================================================
     // juce::AudioIODeviceCallback Realtime Implementation
     // =========================================================================
-    void audioDeviceIOCallback(const float* const* inputChannelData,
-                               int numInputChannels,
-                               float* const* outputChannelData,
-                               int numOutputChannels,
-                               int numSamples) override
+    void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
+                                         int numInputChannels,
+                                         float* const* outputChannelData,
+                                         int numOutputChannels,
+                                         int numSamples,
+                                         const juce::AudioIODeviceCallbackContext& /*context*/) override
     {
         if (m_activeCallback != nullptr) {
             m_activeCallback->audioDeviceIOCallback(inputChannelData,
@@ -570,16 +571,6 @@ private:
                                                     numOutputChannels,
                                                     numSamples);
         }
-    }
-
-    void audioDeviceIOCallbackWithContext(const float* const* inputChannelData,
-                                         int numInputChannels,
-                                         float* const* outputChannelData,
-                                         int numOutputChannels,
-                                         int numSamples,
-                                         const juce::AudioIODeviceCallbackContext& /*context*/) override
-    {
-        audioDeviceIOCallback(inputChannelData, numInputChannels, outputChannelData, numOutputChannels, numSamples);
     }
 
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override {
