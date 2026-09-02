@@ -209,7 +209,7 @@ public:
         if (dev != nullptr && dev->isOpen()) {
             return static_cast<uint32_t>(dev->getActiveInputChannels().countNumberOfSetBits());
         }
-        return 0;
+        return static_cast<uint32_t>(m_discoveredInputChannels.size());
     }
 
     uint32_t getOutputChannelCount() const noexcept override {
@@ -217,7 +217,15 @@ public:
         if (dev != nullptr && dev->isOpen()) {
             return static_cast<uint32_t>(dev->getActiveOutputChannels().countNumberOfSetBits());
         }
-        return 0;
+        return static_cast<uint32_t>(m_discoveredOutputChannels.size());
+    }
+
+    std::vector<AudioChannelInfo> getDiscoveredInputChannels() const override {
+        return m_discoveredInputChannels;
+    }
+
+    std::vector<AudioChannelInfo> getDiscoveredOutputChannels() const override {
+        return m_discoveredOutputChannels;
     }
 
     double getBufferDurationMs() const noexcept override {
@@ -308,16 +316,28 @@ public:
         setup.sampleRate = requestedConfig.sampleRate;
         setup.bufferSize = static_cast<int>(requestedConfig.bufferSize);
 
-        // Explicitly enable input and output channels (do not rely on driver default channel bitmasks)
+        // Discover total physical and virtual channel count on the device
+        int totalDeviceInputs = 0;
+        int totalDeviceOutputs = 0;
+        {
+            auto tempDev = std::unique_ptr<juce::AudioIODevice>(type->createDevice(targetDeviceName, targetDeviceName));
+            if (tempDev != nullptr) {
+                totalDeviceInputs = tempDev->getInputChannelNames().size();
+                totalDeviceOutputs = tempDev->getOutputChannelNames().size();
+            }
+        }
+
+        // Explicitly enable all discovered input channels so every physical and virtual endpoint is accessible to the callback
         setup.useDefaultInputChannels = false;
         setup.inputChannels.clear();
-        const int requestedIns = (requestedConfig.inputChannelCount > 0) ? static_cast<int>(requestedConfig.inputChannelCount) : 2;
-        setup.inputChannels.setRange(0, requestedIns, true);
+        const int insToEnable = (totalDeviceInputs > 0) ? totalDeviceInputs : (requestedConfig.inputChannelCount > 0 ? static_cast<int>(requestedConfig.inputChannelCount) : 2);
+        setup.inputChannels.setRange(0, insToEnable, true);
 
+        // Explicitly enable all discovered output channels so any destination endpoint can be routed
         setup.useDefaultOutputChannels = false;
         setup.outputChannels.clear();
-        const int requestedOuts = (requestedConfig.outputChannelCount > 0) ? static_cast<int>(requestedConfig.outputChannelCount) : 2;
-        setup.outputChannels.setRange(0, requestedOuts, true);
+        const int outsToEnable = (totalDeviceOutputs > 0) ? totalDeviceOutputs : (requestedConfig.outputChannelCount > 0 ? static_cast<int>(requestedConfig.outputChannelCount) : 2);
+        setup.outputChannels.setRange(0, outsToEnable, true);
 
         // 6. Perform real device initialization via JUCE and capture exact error string
         const juce::String juceError = m_juceManager.setAudioDeviceSetup(setup, true);
@@ -326,6 +346,8 @@ public:
         // 7. Obtain and query the AudioIODevice
         auto* dev = m_juceManager.getCurrentAudioDevice();
         m_diagnostic.hasDevicePointer = (dev != nullptr);
+        m_discoveredInputChannels.clear();
+        m_discoveredOutputChannels.clear();
         if (dev != nullptr) {
             m_diagnostic.isDeviceOpen = dev->isOpen();
             m_diagnostic.deviceLastError = dev->getLastError().toStdString();
@@ -334,11 +356,31 @@ public:
                 m_diagnostic.actualBufferSize = static_cast<uint32_t>(dev->getCurrentBufferSizeSamples());
                 m_diagnostic.activeInputChannels = static_cast<uint32_t>(dev->getActiveInputChannels().countNumberOfSetBits());
                 m_diagnostic.activeOutputChannels = static_cast<uint32_t>(dev->getActiveOutputChannels().countNumberOfSetBits());
-                for (const auto& name : dev->getInputChannelNames()) {
-                    m_diagnostic.inputChannelNames.push_back(name.toStdString());
+                
+                const auto activeInBits = dev->getActiveInputChannels();
+                const auto inNames = dev->getInputChannelNames();
+                int inBufferIdx = 0;
+                for (int i = 0; i < inNames.size(); ++i) {
+                    m_diagnostic.inputChannelNames.push_back(inNames[i].toStdString());
+                    AudioChannelInfo info;
+                    info.deviceChannelIndex = i;
+                    info.bufferIndex = activeInBits[i] ? inBufferIdx++ : -1;
+                    info.channelName = inNames[i].toStdString();
+                    info.isInput = true;
+                    m_discoveredInputChannels.push_back(info);
                 }
-                for (const auto& name : dev->getOutputChannelNames()) {
-                    m_diagnostic.outputChannelNames.push_back(name.toStdString());
+
+                const auto activeOutBits = dev->getActiveOutputChannels();
+                const auto outNames = dev->getOutputChannelNames();
+                int outBufferIdx = 0;
+                for (int i = 0; i < outNames.size(); ++i) {
+                    m_diagnostic.outputChannelNames.push_back(outNames[i].toStdString());
+                    AudioChannelInfo info;
+                    info.deviceChannelIndex = i;
+                    info.bufferIndex = activeOutBits[i] ? outBufferIdx++ : -1;
+                    info.channelName = outNames[i].toStdString();
+                    info.isInput = false;
+                    m_discoveredOutputChannels.push_back(info);
                 }
             }
         }
@@ -605,6 +647,8 @@ private:
     bool m_isAudioRunning{false};
     std::string m_lastError;
     AudioDeviceDiagnostic m_diagnostic;
+    std::vector<AudioChannelInfo> m_discoveredInputChannels;
+    std::vector<AudioChannelInfo> m_discoveredOutputChannels;
     std::vector<IAudioDeviceListener*> m_listeners;
 };
 
@@ -682,6 +726,20 @@ public:
     uint32_t getInputChannelCount() const noexcept override { return m_config.inputChannelCount; }
     uint32_t getOutputChannelCount() const noexcept override { return m_config.outputChannelCount; }
 
+    std::vector<AudioChannelInfo> getDiscoveredInputChannels() const override {
+        return m_discoveredInputChannels;
+    }
+
+    std::vector<AudioChannelInfo> getDiscoveredOutputChannels() const override {
+        return m_discoveredOutputChannels;
+    }
+
+    void setDiscoveredChannelsForTesting(const std::vector<AudioChannelInfo>& inputs,
+                                        const std::vector<AudioChannelInfo>& outputs) {
+        m_discoveredInputChannels = inputs;
+        m_discoveredOutputChannels = outputs;
+    }
+
     double getBufferDurationMs() const noexcept override {
         return (m_config.sampleRate > 0.0) ? (static_cast<double>(m_config.bufferSize) / m_config.sampleRate) * 1000.0 : 0.0;
     }
@@ -692,6 +750,8 @@ public:
     bool openDevice(const AudioConfig& requestedConfig) override {
         m_config = requestedConfig;
         m_lastError.clear();
+        m_discoveredInputChannels.clear();
+        m_discoveredOutputChannels.clear();
         if (requestedConfig.sampleRate <= 0.0 || requestedConfig.bufferSize == 0) {
             m_lastError = "Invalid sample rate or buffer size.";
             for (auto* l : m_listeners) {
@@ -700,6 +760,26 @@ public:
             m_isOpen = false;
             return false;
         }
+        
+        const uint32_t inCount = requestedConfig.inputChannelCount > 0 ? requestedConfig.inputChannelCount : 2;
+        const uint32_t outCount = requestedConfig.outputChannelCount > 0 ? requestedConfig.outputChannelCount : 2;
+        for (uint32_t i = 0; i < inCount; ++i) {
+            AudioChannelInfo info;
+            info.deviceChannelIndex = static_cast<int>(i);
+            info.bufferIndex = static_cast<int>(i);
+            info.channelName = "Input " + std::to_string(i + 1);
+            info.isInput = true;
+            m_discoveredInputChannels.push_back(info);
+        }
+        for (uint32_t i = 0; i < outCount; ++i) {
+            AudioChannelInfo info;
+            info.deviceChannelIndex = static_cast<int>(i);
+            info.bufferIndex = static_cast<int>(i);
+            info.channelName = "Output " + std::to_string(i + 1);
+            info.isInput = false;
+            m_discoveredOutputChannels.push_back(info);
+        }
+
         m_isOpen = true;
         return true;
     }
@@ -754,6 +834,8 @@ private:
     bool m_isRunning{false};
     std::string m_lastError;
     IAudioCallback* m_callback{nullptr};
+    std::vector<AudioChannelInfo> m_discoveredInputChannels;
+    std::vector<AudioChannelInfo> m_discoveredOutputChannels;
     std::vector<IAudioDeviceListener*> m_listeners;
 };
 

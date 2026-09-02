@@ -39,23 +39,28 @@ private:
 /**
  * @brief UI Channel Strip for Mono Channels (CH1, CH2)
  */
-class MonoChannelStrip : public juce::Component, public juce::Slider::Listener, public juce::Button::Listener {
+class MonoChannelStrip : public juce::Component, public juce::Slider::Listener, public juce::Button::Listener, public juce::ComboBox::Listener {
 public:
-    MonoChannelStrip(mixer::MixerChannel& channel, juce::String title, juce::String sourceName);
+    MonoChannelStrip(mixer::MixerChannel& channel, juce::String title, std::function<void(int)> routeSetter, std::function<int()> routeGetter);
     ~MonoChannelStrip() override;
 
     void updateTelemetry();
+    void updateDiscoveredChannels(const std::vector<audio::AudioChannelInfo>& inputs);
     void resized() override;
     void paint(juce::Graphics& g) override;
 
     void sliderValueChanged(juce::Slider* slider) override;
     void buttonClicked(juce::Button* button) override;
+    void comboBoxChanged(juce::ComboBox* comboBox) override;
 
 private:
     mixer::MixerChannel& m_channel;
+    std::function<void(int)> m_routeSetter;
+    std::function<int()> m_routeGetter;
 
     juce::Label m_nameLabel;
-    juce::Label m_sourceLabel;
+    juce::Label m_inputTitle;
+    juce::ComboBox m_inputSelector;
 
     juce::Label m_gainTitle;
     juce::Slider m_gainSlider;
@@ -79,23 +84,33 @@ private:
 /**
  * @brief UI Channel Strip for Stereo Media Channel (CH3/4)
  */
-class StereoChannelStrip : public juce::Component, public juce::Slider::Listener, public juce::Button::Listener {
+class StereoChannelStrip : public juce::Component, public juce::Slider::Listener, public juce::Button::Listener, public juce::ComboBox::Listener {
 public:
-    StereoChannelStrip(mixer::StereoMixerChannel& channel, juce::String title, juce::String sourceName);
+    StereoChannelStrip(mixer::StereoMixerChannel& channel, juce::String title,
+                       std::function<void(int)> routeSetterL, std::function<int()> routeGetterL,
+                       std::function<void(int)> routeSetterR, std::function<int()> routeGetterR);
     ~StereoChannelStrip() override;
 
     void updateTelemetry();
+    void updateDiscoveredChannels(const std::vector<audio::AudioChannelInfo>& inputs);
     void resized() override;
     void paint(juce::Graphics& g) override;
 
     void sliderValueChanged(juce::Slider* slider) override;
     void buttonClicked(juce::Button* button) override;
+    void comboBoxChanged(juce::ComboBox* comboBox) override;
 
 private:
     mixer::StereoMixerChannel& m_channel;
+    std::function<void(int)> m_routeSetterL;
+    std::function<int()> m_routeGetterL;
+    std::function<void(int)> m_routeSetterR;
+    std::function<int()> m_routeGetterR;
 
     juce::Label m_nameLabel;
-    juce::Label m_sourceLabel;
+    juce::Label m_inputTitle;
+    juce::ComboBox m_inputSelectorL;
+    juce::ComboBox m_inputSelectorR;
 
     juce::Label m_gainTitle;
     juce::Slider m_gainSlider;
@@ -119,23 +134,27 @@ private:
 /**
  * @brief UI Master Channel Strip
  */
-class MasterStrip : public juce::Component, public juce::Slider::Listener, public juce::Button::Listener {
+class MasterStrip : public juce::Component, public juce::Slider::Listener, public juce::Button::Listener, public juce::ComboBox::Listener {
 public:
     explicit MasterStrip(mixer::MixerEngine& engine);
     ~MasterStrip() override;
 
     void updateTelemetry();
+    void updateDiscoveredChannels(const std::vector<audio::AudioChannelInfo>& outputs);
     void resized() override;
     void paint(juce::Graphics& g) override;
 
     void sliderValueChanged(juce::Slider* slider) override;
     void buttonClicked(juce::Button* button) override;
+    void comboBoxChanged(juce::ComboBox* comboBox) override;
 
 private:
     mixer::MixerEngine& m_engine;
 
     juce::Label m_nameLabel;
-    juce::Label m_sourceLabel;
+    juce::Label m_outputTitle;
+    juce::ComboBox m_outputSelectorL;
+    juce::ComboBox m_outputSelectorR;
 
     LevelMeterComponent m_meter;
 

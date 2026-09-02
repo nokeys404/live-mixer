@@ -113,21 +113,31 @@ void LevelMeterComponent::paint(juce::Graphics& g) {
 // =============================================================================
 // Mono Channel Strip Implementation (CH1, CH2)
 // =============================================================================
-MonoChannelStrip::MonoChannelStrip(mixer::MixerChannel& channel, juce::String title, juce::String sourceName)
-    : m_channel(channel)
+MonoChannelStrip::MonoChannelStrip(mixer::MixerChannel& channel, juce::String title,
+                                   std::function<void(int)> routeSetter, std::function<int()> routeGetter)
+    : m_channel(channel),
+      m_routeSetter(std::move(routeSetter)),
+      m_routeGetter(std::move(routeGetter))
 {
-    // Name & Source Header
+    // Name Header
     m_nameLabel.setText(title, juce::dontSendNotification);
     m_nameLabel.setFont(juce::Font(14.0f, juce::Font::bold));
     m_nameLabel.setColour(juce::Label::textColourId, juce::Colour(0xfff4f4f5));
     m_nameLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_nameLabel);
 
-    m_sourceLabel.setText(sourceName, juce::dontSendNotification);
-    m_sourceLabel.setFont(juce::Font(10.0f, juce::Font::plain));
-    m_sourceLabel.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa));
-    m_sourceLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(m_sourceLabel);
+    // Dynamic Input Routing Dropdown
+    m_inputTitle.setText("INPUT ROUTE", juce::dontSendNotification);
+    m_inputTitle.setFont(juce::Font(9.0f, juce::Font::bold));
+    m_inputTitle.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa));
+    m_inputTitle.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(m_inputTitle);
+
+    m_inputSelector.addListener(this);
+    m_inputSelector.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff27272a));
+    m_inputSelector.setColour(juce::ComboBox::textColourId, juce::Colour(0xffe4e4e7));
+    m_inputSelector.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3f3f46));
+    addAndMakeVisible(m_inputSelector);
 
     // Gain Control
     m_gainTitle.setText("GAIN", juce::dontSendNotification);
@@ -216,11 +226,41 @@ MonoChannelStrip::MonoChannelStrip(mixer::MixerChannel& channel, juce::String ti
 }
 
 MonoChannelStrip::~MonoChannelStrip() {
+    m_inputSelector.removeListener(this);
     m_gainSlider.removeListener(this);
     m_panSlider.removeListener(this);
     m_faderSlider.removeListener(this);
     m_muteButton.removeListener(this);
     m_soloButton.removeListener(this);
+}
+
+void MonoChannelStrip::updateDiscoveredChannels(const std::vector<audio::AudioChannelInfo>& inputs) {
+    const int currentRoute = m_routeGetter ? m_routeGetter() : -1;
+    
+    m_inputSelector.clear(juce::dontSendNotification);
+    m_inputSelector.addItem("None / Muted", 100); // ID 100 = -1 (disabled)
+
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        juce::String itemText = juce::String(static_cast<int>(i)) + ": " + inputs[i].channelName;
+        m_inputSelector.addItem(itemText, static_cast<int>(i + 1));
+    }
+
+    if (currentRoute >= 0 && currentRoute < static_cast<int>(inputs.size())) {
+        m_inputSelector.setSelectedId(currentRoute + 1, juce::dontSendNotification);
+    } else {
+        m_inputSelector.setSelectedId(100, juce::dontSendNotification);
+    }
+}
+
+void MonoChannelStrip::comboBoxChanged(juce::ComboBox* comboBox) {
+    if (comboBox == &m_inputSelector && m_routeSetter) {
+        const int selectedId = comboBox->getSelectedId();
+        if (selectedId >= 1 && selectedId <= 99) {
+            m_routeSetter(selectedId - 1);
+        } else {
+            m_routeSetter(-1); // Disabled
+        }
+    }
 }
 
 void MonoChannelStrip::updateTelemetry() {
@@ -245,15 +285,16 @@ void MonoChannelStrip::paint(juce::Graphics& g) {
 
     // Subtle header separator
     g.setColour(juce::Colour(0xff3f3f46));
-    g.fillRect(bounds.getX() + 8.0f, bounds.getY() + 44.0f, bounds.getWidth() - 16.0f, 1.0f);
+    g.fillRect(bounds.getX() + 8.0f, bounds.getY() + 56.0f, bounds.getWidth() - 16.0f, 1.0f);
 }
 
 void MonoChannelStrip::resized() {
     auto bounds = getLocalBounds().reduced(6);
 
     m_nameLabel.setBounds(bounds.removeFromTop(20));
-    m_sourceLabel.setBounds(bounds.removeFromTop(16));
-    bounds.removeFromTop(10); // separator gap
+    m_inputTitle.setBounds(bounds.removeFromTop(12));
+    m_inputSelector.setBounds(bounds.removeFromTop(20));
+    bounds.removeFromTop(8); // separator gap
 
     // Gain Section
     m_gainTitle.setBounds(bounds.removeFromTop(12));
@@ -326,21 +367,41 @@ void MonoChannelStrip::buttonClicked(juce::Button* button) {
 // =============================================================================
 // Stereo Channel Strip Implementation (CH3/4 Media)
 // =============================================================================
-StereoChannelStrip::StereoChannelStrip(mixer::StereoMixerChannel& channel, juce::String title, juce::String sourceName)
-    : m_channel(channel)
+StereoChannelStrip::StereoChannelStrip(mixer::StereoMixerChannel& channel, juce::String title,
+                                       std::function<void(int)> routeSetterL, std::function<int()> routeGetterL,
+                                       std::function<void(int)> routeSetterR, std::function<int()> routeGetterR)
+    : m_channel(channel),
+      m_routeSetterL(std::move(routeSetterL)),
+      m_routeGetterL(std::move(routeGetterL)),
+      m_routeSetterR(std::move(routeSetterR)),
+      m_routeGetterR(std::move(routeGetterR))
 {
-    // Name & Source Header
+    // Name Header
     m_nameLabel.setText(title, juce::dontSendNotification);
     m_nameLabel.setFont(juce::Font(14.0f, juce::Font::bold));
     m_nameLabel.setColour(juce::Label::textColourId, juce::Colour(0xfff4f4f5));
     m_nameLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_nameLabel);
 
-    m_sourceLabel.setText(sourceName, juce::dontSendNotification);
-    m_sourceLabel.setFont(juce::Font(10.0f, juce::Font::plain));
-    m_sourceLabel.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa));
-    m_sourceLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(m_sourceLabel);
+    // Input Title
+    m_inputTitle.setText("ROUTING (L / R)", juce::dontSendNotification);
+    m_inputTitle.setFont(juce::Font(9.0f, juce::Font::bold));
+    m_inputTitle.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa));
+    m_inputTitle.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(m_inputTitle);
+
+    // L / R Dropdowns
+    m_inputSelectorL.addListener(this);
+    m_inputSelectorL.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff27272a));
+    m_inputSelectorL.setColour(juce::ComboBox::textColourId, juce::Colour(0xffe4e4e7));
+    m_inputSelectorL.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3f3f46));
+    addAndMakeVisible(m_inputSelectorL);
+
+    m_inputSelectorR.addListener(this);
+    m_inputSelectorR.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff27272a));
+    m_inputSelectorR.setColour(juce::ComboBox::textColourId, juce::Colour(0xffe4e4e7));
+    m_inputSelectorR.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3f3f46));
+    addAndMakeVisible(m_inputSelectorR);
 
     // Gain Control
     m_gainTitle.setText("GAIN", juce::dontSendNotification);
@@ -429,11 +490,60 @@ StereoChannelStrip::StereoChannelStrip(mixer::StereoMixerChannel& channel, juce:
 }
 
 StereoChannelStrip::~StereoChannelStrip() {
+    m_inputSelectorL.removeListener(this);
+    m_inputSelectorR.removeListener(this);
     m_gainSlider.removeListener(this);
     m_balanceSlider.removeListener(this);
     m_faderSlider.removeListener(this);
     m_muteButton.removeListener(this);
     m_soloButton.removeListener(this);
+}
+
+void StereoChannelStrip::updateDiscoveredChannels(const std::vector<audio::AudioChannelInfo>& inputs) {
+    const int currentRouteL = m_routeGetterL ? m_routeGetterL() : -1;
+    const int currentRouteR = m_routeGetterR ? m_routeGetterR() : -1;
+
+    m_inputSelectorL.clear(juce::dontSendNotification);
+    m_inputSelectorR.clear(juce::dontSendNotification);
+
+    m_inputSelectorL.addItem("L: None", 100);
+    m_inputSelectorR.addItem("R: None", 100);
+
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        juce::String itemText = juce::String(static_cast<int>(i)) + ": " + inputs[i].channelName;
+        m_inputSelectorL.addItem("L: " + itemText, static_cast<int>(i + 1));
+        m_inputSelectorR.addItem("R: " + itemText, static_cast<int>(i + 1));
+    }
+
+    if (currentRouteL >= 0 && currentRouteL < static_cast<int>(inputs.size())) {
+        m_inputSelectorL.setSelectedId(currentRouteL + 1, juce::dontSendNotification);
+    } else {
+        m_inputSelectorL.setSelectedId(100, juce::dontSendNotification);
+    }
+
+    if (currentRouteR >= 0 && currentRouteR < static_cast<int>(inputs.size())) {
+        m_inputSelectorR.setSelectedId(currentRouteR + 1, juce::dontSendNotification);
+    } else {
+        m_inputSelectorR.setSelectedId(100, juce::dontSendNotification);
+    }
+}
+
+void StereoChannelStrip::comboBoxChanged(juce::ComboBox* comboBox) {
+    if (comboBox == &m_inputSelectorL && m_routeSetterL) {
+        const int selectedId = comboBox->getSelectedId();
+        if (selectedId >= 1 && selectedId <= 99) {
+            m_routeSetterL(selectedId - 1);
+        } else {
+            m_routeSetterL(-1);
+        }
+    } else if (comboBox == &m_inputSelectorR && m_routeSetterR) {
+        const int selectedId = comboBox->getSelectedId();
+        if (selectedId >= 1 && selectedId <= 99) {
+            m_routeSetterR(selectedId - 1);
+        } else {
+            m_routeSetterR(-1);
+        }
+    }
 }
 
 void StereoChannelStrip::updateTelemetry() {
@@ -456,15 +566,18 @@ void StereoChannelStrip::paint(juce::Graphics& g) {
     g.drawRoundedRectangle(bounds, 6.0f, 1.0f);
 
     g.setColour(juce::Colour(0xff3f3f46));
-    g.fillRect(bounds.getX() + 8.0f, bounds.getY() + 44.0f, bounds.getWidth() - 16.0f, 1.0f);
+    g.fillRect(bounds.getX() + 8.0f, bounds.getY() + 76.0f, bounds.getWidth() - 16.0f, 1.0f);
 }
 
 void StereoChannelStrip::resized() {
     auto bounds = getLocalBounds().reduced(6);
 
     m_nameLabel.setBounds(bounds.removeFromTop(20));
-    m_sourceLabel.setBounds(bounds.removeFromTop(16));
-    bounds.removeFromTop(10);
+    m_inputTitle.setBounds(bounds.removeFromTop(12));
+    m_inputSelectorL.setBounds(bounds.removeFromTop(18));
+    bounds.removeFromTop(2);
+    m_inputSelectorR.setBounds(bounds.removeFromTop(18));
+    bounds.removeFromTop(6);
 
     // Gain Section
     m_gainTitle.setBounds(bounds.removeFromTop(12));
@@ -546,11 +659,23 @@ MasterStrip::MasterStrip(mixer::MixerEngine& engine)
     m_nameLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(m_nameLabel);
 
-    m_sourceLabel.setText("Out 1/2 (Main)", juce::dontSendNotification);
-    m_sourceLabel.setFont(juce::Font(10.0f, juce::Font::plain));
-    m_sourceLabel.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa));
-    m_sourceLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(m_sourceLabel);
+    m_outputTitle.setText("OUTPUT (L / R)", juce::dontSendNotification);
+    m_outputTitle.setFont(juce::Font(9.0f, juce::Font::bold));
+    m_outputTitle.setColour(juce::Label::textColourId, juce::Colour(0xffa1a1aa));
+    m_outputTitle.setJustificationType(juce::Justification::centred);
+    addAndMakeVisible(m_outputTitle);
+
+    m_outputSelectorL.addListener(this);
+    m_outputSelectorL.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff27272a));
+    m_outputSelectorL.setColour(juce::ComboBox::textColourId, juce::Colour(0xffe4e4e7));
+    m_outputSelectorL.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3f3f46));
+    addAndMakeVisible(m_outputSelectorL);
+
+    m_outputSelectorR.addListener(this);
+    m_outputSelectorR.setColour(juce::ComboBox::backgroundColourId, juce::Colour(0xff27272a));
+    m_outputSelectorR.setColour(juce::ComboBox::textColourId, juce::Colour(0xffe4e4e7));
+    m_outputSelectorR.setColour(juce::ComboBox::outlineColourId, juce::Colour(0xff3f3f46));
+    addAndMakeVisible(m_outputSelectorR);
 
     m_meter.setStereo(true);
     addAndMakeVisible(m_meter);
@@ -582,8 +707,57 @@ MasterStrip::MasterStrip(mixer::MixerEngine& engine)
 }
 
 MasterStrip::~MasterStrip() {
+    m_outputSelectorL.removeListener(this);
+    m_outputSelectorR.removeListener(this);
     m_faderSlider.removeListener(this);
     m_muteButton.removeListener(this);
+}
+
+void MasterStrip::updateDiscoveredChannels(const std::vector<audio::AudioChannelInfo>& outputs) {
+    const int currentRouteL = m_engine.getMasterOutputRouteL();
+    const int currentRouteR = m_engine.getMasterOutputRouteR();
+
+    m_outputSelectorL.clear(juce::dontSendNotification);
+    m_outputSelectorR.clear(juce::dontSendNotification);
+
+    m_outputSelectorL.addItem("L: None", 100);
+    m_outputSelectorR.addItem("R: None", 100);
+
+    for (size_t i = 0; i < outputs.size(); ++i) {
+        juce::String itemText = juce::String(static_cast<int>(i)) + ": " + outputs[i].channelName;
+        m_outputSelectorL.addItem("L: " + itemText, static_cast<int>(i + 1));
+        m_outputSelectorR.addItem("R: " + itemText, static_cast<int>(i + 1));
+    }
+
+    if (currentRouteL >= 0 && currentRouteL < static_cast<int>(outputs.size())) {
+        m_outputSelectorL.setSelectedId(currentRouteL + 1, juce::dontSendNotification);
+    } else {
+        m_outputSelectorL.setSelectedId(100, juce::dontSendNotification);
+    }
+
+    if (currentRouteR >= 0 && currentRouteR < static_cast<int>(outputs.size())) {
+        m_outputSelectorR.setSelectedId(currentRouteR + 1, juce::dontSendNotification);
+    } else {
+        m_outputSelectorR.setSelectedId(100, juce::dontSendNotification);
+    }
+}
+
+void MasterStrip::comboBoxChanged(juce::ComboBox* comboBox) {
+    if (comboBox == &m_outputSelectorL) {
+        const int selectedId = comboBox->getSelectedId();
+        if (selectedId >= 1 && selectedId <= 99) {
+            m_engine.setMasterOutputRouteL(selectedId - 1);
+        } else {
+            m_engine.setMasterOutputRouteL(-1);
+        }
+    } else if (comboBox == &m_outputSelectorR) {
+        const int selectedId = comboBox->getSelectedId();
+        if (selectedId >= 1 && selectedId <= 99) {
+            m_engine.setMasterOutputRouteR(selectedId - 1);
+        } else {
+            m_engine.setMasterOutputRouteR(-1);
+        }
+    }
 }
 
 void MasterStrip::updateTelemetry() {
@@ -604,15 +778,18 @@ void MasterStrip::paint(juce::Graphics& g) {
     g.drawRoundedRectangle(bounds, 6.0f, 1.5f);
 
     g.setColour(juce::Colour(0xff57534e));
-    g.fillRect(bounds.getX() + 8.0f, bounds.getY() + 44.0f, bounds.getWidth() - 16.0f, 1.0f);
+    g.fillRect(bounds.getX() + 8.0f, bounds.getY() + 76.0f, bounds.getWidth() - 16.0f, 1.0f);
 }
 
 void MasterStrip::resized() {
     auto bounds = getLocalBounds().reduced(6);
 
     m_nameLabel.setBounds(bounds.removeFromTop(20));
-    m_sourceLabel.setBounds(bounds.removeFromTop(16));
-    bounds.removeFromTop(14);
+    m_outputTitle.setBounds(bounds.removeFromTop(12));
+    m_outputSelectorL.setBounds(bounds.removeFromTop(18));
+    bounds.removeFromTop(2);
+    m_outputSelectorR.setBounds(bounds.removeFromTop(18));
+    bounds.removeFromTop(8);
 
     // Mute button at bottom
     auto muteRow = bounds.removeFromBottom(28);
@@ -676,19 +853,43 @@ MixerPanel::MixerPanel(std::shared_ptr<audio::AudioEngine> engine)
     m_statusBadge.setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(m_statusBadge);
 
-    // Instantiate 4 channel strips
+    // Instantiate 4 channel strips with explicit dynamic routing lambdas
     if (m_mixerEngine) {
-        m_ch1Strip = std::make_unique<MonoChannelStrip>(m_mixerEngine->getChannel1(), "CH1 MIC", "Hardware In 1");
+        m_ch1Strip = std::make_unique<MonoChannelStrip>(
+            m_mixerEngine->getChannel1(), "CH1 MIC",
+            [this](int r) { if (m_mixerEngine) m_mixerEngine->setCh1InputRoute(r); },
+            [this]() { return m_mixerEngine ? m_mixerEngine->getCh1InputRoute() : 0; }
+        );
         addAndMakeVisible(m_ch1Strip.get());
 
-        m_ch2Strip = std::make_unique<MonoChannelStrip>(m_mixerEngine->getChannel2(), "CH2 INST", "Hardware In 2");
+        m_ch2Strip = std::make_unique<MonoChannelStrip>(
+            m_mixerEngine->getChannel2(), "CH2 INST",
+            [this](int r) { if (m_mixerEngine) m_mixerEngine->setCh2InputRoute(r); },
+            [this]() { return m_mixerEngine ? m_mixerEngine->getCh2InputRoute() : 1; }
+        );
         addAndMakeVisible(m_ch2Strip.get());
 
-        m_ch34Strip = std::make_unique<StereoChannelStrip>(m_mixerEngine->getStereoChannel(), "CH3/4 MEDIA", "Hardware In 1-2");
+        m_ch34Strip = std::make_unique<StereoChannelStrip>(
+            m_mixerEngine->getStereoChannel(), "CH3/4 MEDIA",
+            [this](int r) { if (m_mixerEngine) m_mixerEngine->setCh34InputRouteL(r); },
+            [this]() { return m_mixerEngine ? m_mixerEngine->getCh34InputRouteL() : 2; },
+            [this](int r) { if (m_mixerEngine) m_mixerEngine->setCh34InputRouteR(r); },
+            [this]() { return m_mixerEngine ? m_mixerEngine->getCh34InputRouteR() : 3; }
+        );
         addAndMakeVisible(m_ch34Strip.get());
 
         m_masterStrip = std::make_unique<MasterStrip>(*m_mixerEngine);
         addAndMakeVisible(m_masterStrip.get());
+    }
+
+    // Refresh channel routing dropdown items initially
+    if (m_audioEngine) {
+        const auto inChannels = m_audioEngine->getDiscoveredInputChannels();
+        const auto outChannels = m_audioEngine->getDiscoveredOutputChannels();
+        if (m_ch1Strip) m_ch1Strip->updateDiscoveredChannels(inChannels);
+        if (m_ch2Strip) m_ch2Strip->updateDiscoveredChannels(inChannels);
+        if (m_ch34Strip) m_ch34Strip->updateDiscoveredChannels(inChannels);
+        if (m_masterStrip) m_masterStrip->updateDiscoveredChannels(outChannels);
     }
 
     // Start 30 Hz timer for smooth meter rendering without audio thread contention

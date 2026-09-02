@@ -213,6 +213,13 @@ bool AudioEngine::initialize(const AudioConfig& config) {
 
     m_metrics.setConfig(m_config.sampleRate, m_config.bufferSize);
     updateLatencies();
+
+    if (m_mixerEngine) {
+        const auto ins = m_deviceManager->getDiscoveredInputChannels();
+        const auto outs = m_deviceManager->getDiscoveredOutputChannels();
+        m_mixerEngine->setDefaultsForDiscoveredChannels(static_cast<int>(ins.size()), static_cast<int>(outs.size()));
+    }
+
     m_lastErrorMessage.clear();
     setState(AudioState::Ready);
     return true;

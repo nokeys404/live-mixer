@@ -398,6 +398,330 @@ void testRealtimeTelemetryAndSignalPath() {
     TEST_ASSERT(engine.getOutputPeakL() > 0.0f && engine.getOutputPeakR() > 0.0f, "Output peaks non-zero");
 }
 
+void testDriverDiscoveredChannelEnumeration() {
+    std::cout << "Running testDriverDiscoveredChannelEnumeration...\n";
+    std::shared_ptr<IAudioDeviceManager> devMgr = createAudioDeviceManager();
+    auto engine = std::make_unique<AudioEngine>(devMgr);
+
+    AudioConfig cfg;
+    cfg.driverType = DriverType::ASIO;
+    cfg.inputChannelCount = 8;
+    cfg.outputChannelCount = 8;
+
+    bool initOk = engine->initialize(cfg);
+    TEST_ASSERT(initOk, "AudioEngine successfully initializes with multi-channel configuration");
+
+    const auto inChannels = engine->getDiscoveredInputChannels();
+    const auto outChannels = engine->getDiscoveredOutputChannels();
+
+    TEST_ASSERT(inChannels.size() == 8, "8 input channels discovered");
+    TEST_ASSERT(outChannels.size() == 8, "8 output channels discovered");
+    TEST_ASSERT(inChannels[0].channelIndex == 0, "Input 0 index is 0");
+    TEST_ASSERT(inChannels[7].channelIndex == 7, "Input 7 index is 7");
+}
+
+void testExplicitRoutingAndZeroChannelBleed() {
+    std::cout << "Running testExplicitRoutingAndZeroChannelBleed...\n";
+    livemixer::mixer::MixerEngine mixer;
+
+    const int numSamples = 64;
+    // Simulate 8 ASIO input channels (like Maono ProStudio 2x2 ASIO driver)
+    std::vector<float> buffers[8];
+    for (int ch = 0; ch < 8; ++ch) {
+        buffers[ch].assign(numSamples, 0.0f);
+    }
+
+    // Signal ONLY on Channel 0 (e.g. Maono MIC In 1)
+    for (int i = 0; i < numSamples; ++i) {
+        buffers[0][i] = 0.9f;
+    }
+
+    const float* inPointers[8];
+    for (int ch = 0; ch < 8; ++ch) {
+        inPointers[ch] = buffers[ch].data();
+    }
+
+    float out0[numSamples];
+    float out1[numSamples];
+    std::memset(out0, 0, sizeof(out0));
+    std::memset(out1, 0, sizeof(out1));
+    float* outPointers[2] = { out0, out1 };
+
+    // Explicitly configure routing:
+    // CH1 -> Input 0
+    // CH2 -> Input 1
+    // CH3/4 -> Input 2 and 3
+    mixer.setCh1InputRoute(0);
+    mixer.setCh2InputRoute(1);
+    mixer.setCh34InputRouteL(2);
+    mixer.setCh34InputRouteR(3);
+    mixer.setMasterOutputRouteL(0);
+    mixer.setMasterOutputRouteR(1);
+
+    // Process block
+    mixer.process(inPointers, 8, outPointers, 2, numSamples);
+
+    // Verify complete channel isolation and ZERO cross-bleed
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() > 0.8f, "CH1 meter active for routed Input 0");
+    TEST_ASSERT(mixer.getChannel2().getPeakLevel() == 0.0f, "CH2 meter is STRICTLY 0.0 (NO BLEED from Input 0)");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelL() == 0.0f, "CH3/4 Left meter is STRICTLY 0.0 (NO BLEED from Input 0)");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelR() == 0.0f, "CH3/4 Right meter is STRICTLY 0.0 (NO BLEED from Input 0)");
+    TEST_ASSERT(std::abs(mixer.getRawInputPeakCh1() - 0.9f) < 0.001f, "Raw Input CH1 peak is 0.9");
+    TEST_ASSERT(mixer.getRawInputPeakCh2() == 0.0f, "Raw Input CH2 peak is 0.0");
+
+    // Dynamic Route Switch: Re-route CH1 to Input 1 (which has silence)
+    mixer.setCh1InputRoute(1);
+    mixer.process(inPointers, 8, outPointers, 2, numSamples);
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() == 0.0f, "CH1 dynamically switched to Input 1 and is now 0.0");
+}
+
+void testDisconnectedRouteGeneratesSilence() {
+    std::cout << "Running testDisconnectedRouteGeneratesSilence...\n";
+    livemixer::mixer::MixerEngine mixer;
+
+    const int numSamples = 64;
+    float in0[numSamples];
+    for (int i = 0; i < numSamples; ++i) in0[i] = 1.0f;
+    const float* inPointers[1] = { in0 };
+
+    float out0[numSamples], out1[numSamples];
+    float* outPointers[2] = { out0, out1 };
+
+    // Set CH1 to disconnected (-1)
+    mixer.setCh1InputRoute(-1);
+    mixer.process(inPointers, 1, outPointers, 2, numSamples);
+
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() == 0.0f, "Disconnected CH1 route results in 0.0 meter");
+    TEST_ASSERT(out0[0] == 0.0f && out1[0] == 0.0f, "Disconnected routes output pure silence");
+}
+
+void testIsolationTestA_SignalOnlyOnInput0() {
+    std::cout << "Running testIsolationTestA_SignalOnlyOnInput0...\n";
+    livemixer::mixer::MixerEngine mixer;
+    const int numSamples = 64;
+    float in0[numSamples], in1[numSamples], in2[numSamples], in3[numSamples];
+    for (int i = 0; i < numSamples; ++i) {
+        in0[i] = 0.8f;
+        in1[i] = 0.0f;
+        in2[i] = 0.0f;
+        in3[i] = 0.0f;
+    }
+    const float* inPointers[4] = { in0, in1, in2, in3 };
+    float out0[numSamples], out1[numSamples];
+    float* outPointers[2] = { out0, out1 };
+
+    mixer.setCh1InputRoute(0);
+    mixer.setCh2InputRoute(1);
+    mixer.setCh34InputRouteL(2);
+    mixer.setCh34InputRouteR(3);
+
+    mixer.process(inPointers, 4, outPointers, 2, numSamples);
+
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() > 0.5f, "TEST A: CH1 is active");
+    TEST_ASSERT(mixer.getChannel2().getPeakLevel() == 0.0f, "TEST A: CH2 is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelL() == 0.0f, "TEST A: CH3/4 L is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelR() == 0.0f, "TEST A: CH3/4 R is silent");
+}
+
+void testIsolationTestB_SignalOnlyOnInput1() {
+    std::cout << "Running testIsolationTestB_SignalOnlyOnInput1...\n";
+    livemixer::mixer::MixerEngine mixer;
+    const int numSamples = 64;
+    float in0[numSamples], in1[numSamples], in2[numSamples], in3[numSamples];
+    for (int i = 0; i < numSamples; ++i) {
+        in0[i] = 0.0f;
+        in1[i] = 0.8f;
+        in2[i] = 0.0f;
+        in3[i] = 0.0f;
+    }
+    const float* inPointers[4] = { in0, in1, in2, in3 };
+    float out0[numSamples], out1[numSamples];
+    float* outPointers[2] = { out0, out1 };
+
+    mixer.setCh1InputRoute(0);
+    mixer.setCh2InputRoute(1);
+    mixer.setCh34InputRouteL(2);
+    mixer.setCh34InputRouteR(3);
+
+    mixer.process(inPointers, 4, outPointers, 2, numSamples);
+
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() == 0.0f, "TEST B: CH1 is silent");
+    TEST_ASSERT(mixer.getChannel2().getPeakLevel() > 0.5f, "TEST B: CH2 is active");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelL() == 0.0f, "TEST B: CH3/4 L is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelR() == 0.0f, "TEST B: CH3/4 R is silent");
+}
+
+void testIsolationTestC_SignalOnlyOnInput2() {
+    std::cout << "Running testIsolationTestC_SignalOnlyOnInput2...\n";
+    livemixer::mixer::MixerEngine mixer;
+    const int numSamples = 64;
+    float in0[numSamples], in1[numSamples], in2[numSamples], in3[numSamples];
+    for (int i = 0; i < numSamples; ++i) {
+        in0[i] = 0.0f;
+        in1[i] = 0.0f;
+        in2[i] = 0.8f;
+        in3[i] = 0.0f;
+    }
+    const float* inPointers[4] = { in0, in1, in2, in3 };
+    float out0[numSamples], out1[numSamples];
+    float* outPointers[2] = { out0, out1 };
+
+    mixer.setCh1InputRoute(0);
+    mixer.setCh2InputRoute(1);
+    mixer.setCh34InputRouteL(2);
+    mixer.setCh34InputRouteR(3);
+
+    mixer.process(inPointers, 4, outPointers, 2, numSamples);
+
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() == 0.0f, "TEST C: CH1 is silent");
+    TEST_ASSERT(mixer.getChannel2().getPeakLevel() == 0.0f, "TEST C: CH2 is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelL() > 0.5f, "TEST C: CH3/4 L is active");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelR() == 0.0f, "TEST C: CH3/4 R is silent");
+}
+
+void testIsolationTestD_SignalOnlyOnInput3() {
+    std::cout << "Running testIsolationTestD_SignalOnlyOnInput3...\n";
+    livemixer::mixer::MixerEngine mixer;
+    const int numSamples = 64;
+    float in0[numSamples], in1[numSamples], in2[numSamples], in3[numSamples];
+    for (int i = 0; i < numSamples; ++i) {
+        in0[i] = 0.0f;
+        in1[i] = 0.0f;
+        in2[i] = 0.0f;
+        in3[i] = 0.8f;
+    }
+    const float* inPointers[4] = { in0, in1, in2, in3 };
+    float out0[numSamples], out1[numSamples];
+    float* outPointers[2] = { out0, out1 };
+
+    mixer.setCh1InputRoute(0);
+    mixer.setCh2InputRoute(1);
+    mixer.setCh34InputRouteL(2);
+    mixer.setCh34InputRouteR(3);
+
+    mixer.process(inPointers, 4, outPointers, 2, numSamples);
+
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() == 0.0f, "TEST D: CH1 is silent");
+    TEST_ASSERT(mixer.getChannel2().getPeakLevel() == 0.0f, "TEST D: CH2 is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelL() == 0.0f, "TEST D: CH3/4 L is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelR() > 0.5f, "TEST D: CH3/4 R is active");
+}
+
+void testIsolationTestE_NoInputSignals() {
+    std::cout << "Running testIsolationTestE_NoInputSignals...\n";
+    livemixer::mixer::MixerEngine mixer;
+    const int numSamples = 64;
+    float in0[numSamples], in1[numSamples], in2[numSamples], in3[numSamples];
+    for (int i = 0; i < numSamples; ++i) {
+        in0[i] = 0.0f;
+        in1[i] = 0.0f;
+        in2[i] = 0.0f;
+        in3[i] = 0.0f;
+    }
+    const float* inPointers[4] = { in0, in1, in2, in3 };
+    float out0[numSamples], out1[numSamples];
+    float* outPointers[2] = { out0, out1 };
+
+    mixer.setCh1InputRoute(0);
+    mixer.setCh2InputRoute(1);
+    mixer.setCh34InputRouteL(2);
+    mixer.setCh34InputRouteR(3);
+
+    mixer.process(inPointers, 4, outPointers, 2, numSamples);
+
+    TEST_ASSERT(mixer.getChannel1().getPeakLevel() == 0.0f, "TEST E: CH1 is silent");
+    TEST_ASSERT(mixer.getChannel2().getPeakLevel() == 0.0f, "TEST E: CH2 is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelL() == 0.0f, "TEST E: CH3/4 L is silent");
+    TEST_ASSERT(mixer.getStereoChannel().getPeakLevelR() == 0.0f, "TEST E: CH3/4 R is silent");
+    TEST_ASSERT(mixer.getMasterPeakL() == 0.0f && mixer.getMasterPeakR() == 0.0f, "TEST E: MASTER is silent");
+    TEST_ASSERT(out0[0] == 0.0f && out1[0] == 0.0f, "TEST E: Output buffers contain pure silence");
+}
+
+void testIsolationTestF_CustomRouting() {
+    std::cout << "Running testIsolationTestF_CustomRouting...\n";
+    livemixer::mixer::MixerEngine mixer;
+    const int numSamples = 64;
+    std::vector<float> inBuffers[8];
+    for (int ch = 0; ch < 8; ++ch) {
+        inBuffers[ch].assign(numSamples, 0.0f);
+    }
+
+    // Assign unique distinct signal amplitudes to specific channels
+    for (int i = 0; i < numSamples; ++i) {
+        inBuffers[5][i] = 0.5f; // Destined for CH1
+        inBuffers[2][i] = 0.6f; // Destined for CH2
+        inBuffers[7][i] = 0.7f; // Destined for CH3/4 L
+        inBuffers[6][i] = 0.8f; // Destined for CH3/4 R
+    }
+
+    const float* inPointers[8];
+    for (int ch = 0; ch < 8; ++ch) {
+        inPointers[ch] = inBuffers[ch].data();
+    }
+
+    float out0[numSamples], out1[numSamples];
+    float* outPointers[2] = { out0, out1 };
+
+    // Set custom mapping:
+    // CH1 -> input 5
+    // CH2 -> input 2
+    // CH3/4 L -> input 7
+    // CH3/4 R -> input 6
+    mixer.setCh1InputRoute(5);
+    mixer.setCh2InputRoute(2);
+    mixer.setCh34InputRouteL(7);
+    mixer.setCh34InputRouteR(6);
+
+    mixer.process(inPointers, 8, outPointers, 2, numSamples);
+
+    TEST_ASSERT(std::abs(mixer.getChannel1().getPeakLevel() - 0.5f) < 0.01f, "TEST F: CH1 received ONLY input 5 (0.5f)");
+    TEST_ASSERT(std::abs(mixer.getChannel2().getPeakLevel() - 0.6f) < 0.01f, "TEST F: CH2 received ONLY input 2 (0.6f)");
+    TEST_ASSERT(std::abs(mixer.getStereoChannel().getPeakLevelL() - 0.7f) < 0.01f, "TEST F: CH3/4 L received ONLY input 7 (0.7f)");
+    TEST_ASSERT(std::abs(mixer.getStereoChannel().getPeakLevelR() - 0.8f) < 0.01f, "TEST F: CH3/4 R received ONLY input 6 (0.8f)");
+}
+
+void testMasterOutputIsolation() {
+    std::cout << "Running testMasterOutputIsolation...\n";
+    livemixer::mixer::MixerEngine mixer;
+    const int numSamples = 64;
+
+    float in0[numSamples];
+    for (int i = 0; i < numSamples; ++i) in0[i] = 0.85f;
+    const float* inPointers[1] = { in0 };
+
+    // 4 output channels
+    float out0[numSamples], out1[numSamples], out2[numSamples], out3[numSamples];
+    for (int i = 0; i < numSamples; ++i) {
+        out0[i] = -999.0f; // Dirty memory
+        out1[i] = -999.0f;
+        out2[i] = -999.0f;
+        out3[i] = -999.0f;
+    }
+    float* outPointers[4] = { out0, out1, out2, out3 };
+
+    // Route CH1 -> 0
+    mixer.setCh1InputRoute(0);
+    // Route Master L -> output 2, Master R -> output 3
+    mixer.setMasterOutputRouteL(2);
+    mixer.setMasterOutputRouteR(3);
+
+    mixer.process(inPointers, 1, outPointers, 4, numSamples);
+
+    // Verify output 0 and 1 are strictly ZEROED (no leak/duplication to unselected outputs)
+    bool out0IsZero = true;
+    bool out1IsZero = true;
+    for (int i = 0; i < numSamples; ++i) {
+        if (out0[i] != 0.0f) out0IsZero = false;
+        if (out1[i] != 0.0f) out1IsZero = false;
+    }
+    TEST_ASSERT(out0IsZero, "Output 0 remains strictly 0.0 (no leak from Master)");
+    TEST_ASSERT(out1IsZero, "Output 1 remains strictly 0.0 (no leak from Master)");
+
+    // Verify outputs 2 and 3 received the master audio
+    TEST_ASSERT(std::abs(out2[0]) > 0.1f, "Output 2 received Master Left signal");
+    TEST_ASSERT(std::abs(out3[0]) > 0.1f, "Output 3 received Master Right signal");
+}
+
 int main() {
     std::cout << "========================================\n";
     std::cout << "LIVE MIXER V0.1 FOUNDATION TEST SUITE\n";
@@ -416,6 +740,16 @@ int main() {
     testErrorDiagnostics();
     testExactErrorStringPreservation();
     testDiagnosticInfoRetrieval();
+    testDriverDiscoveredChannelEnumeration();
+    testExplicitRoutingAndZeroChannelBleed();
+    testDisconnectedRouteGeneratesSilence();
+    testIsolationTestA_SignalOnlyOnInput0();
+    testIsolationTestB_SignalOnlyOnInput1();
+    testIsolationTestC_SignalOnlyOnInput2();
+    testIsolationTestD_SignalOnlyOnInput3();
+    testIsolationTestE_NoInputSignals();
+    testIsolationTestF_CustomRouting();
+    testMasterOutputIsolation();
 
     std::cout << "\n========================================\n";
     std::cout << "TEST RESULTS: " << g_testsPassed << " passed, " << g_testsFailed << " failed.\n";

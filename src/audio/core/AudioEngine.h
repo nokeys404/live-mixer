@@ -42,6 +42,12 @@ public:
     [[nodiscard]] AudioMetricsSnapshot getMetrics() const noexcept;
     [[nodiscard]] std::string getLastError() const;
     [[nodiscard]] AudioDeviceDiagnostic getDiagnosticInfo() const;
+    [[nodiscard]] std::vector<AudioChannelInfo> getDiscoveredInputChannels() const {
+        return m_deviceManager ? m_deviceManager->getDiscoveredInputChannels() : std::vector<AudioChannelInfo>{};
+    }
+    [[nodiscard]] std::vector<AudioChannelInfo> getDiscoveredOutputChannels() const {
+        return m_deviceManager ? m_deviceManager->getDiscoveredOutputChannels() : std::vector<AudioChannelInfo>{};
+    }
     [[nodiscard]] std::shared_ptr<IAudioDeviceManager> getDeviceManager() const noexcept { return m_deviceManager; }
     [[nodiscard]] std::shared_ptr<mixer::MixerEngine> getMixerEngine() const noexcept { return m_mixerEngine; }
 

@@ -63,6 +63,27 @@ public:
         return m_ch1.isSolo() || m_ch2.isSolo() || m_ch34.isSolo();
     }
 
+    // Input and Output Routing (Lock-free realtime atomic indices, -1 = disabled)
+    void setCh1InputRoute(int bufferIndex) noexcept { m_ch1InputRoute.store(bufferIndex, std::memory_order_relaxed); }
+    [[nodiscard]] int getCh1InputRoute() const noexcept { return m_ch1InputRoute.load(std::memory_order_relaxed); }
+
+    void setCh2InputRoute(int bufferIndex) noexcept { m_ch2InputRoute.store(bufferIndex, std::memory_order_relaxed); }
+    [[nodiscard]] int getCh2InputRoute() const noexcept { return m_ch2InputRoute.load(std::memory_order_relaxed); }
+
+    void setCh34InputRouteL(int bufferIndex) noexcept { m_ch34InputRouteL.store(bufferIndex, std::memory_order_relaxed); }
+    [[nodiscard]] int getCh34InputRouteL() const noexcept { return m_ch34InputRouteL.load(std::memory_order_relaxed); }
+
+    void setCh34InputRouteR(int bufferIndex) noexcept { m_ch34InputRouteR.store(bufferIndex, std::memory_order_relaxed); }
+    [[nodiscard]] int getCh34InputRouteR() const noexcept { return m_ch34InputRouteR.load(std::memory_order_relaxed); }
+
+    void setMasterOutputRouteL(int bufferIndex) noexcept { m_masterOutputRouteL.store(bufferIndex, std::memory_order_relaxed); }
+    [[nodiscard]] int getMasterOutputRouteL() const noexcept { return m_masterOutputRouteL.load(std::memory_order_relaxed); }
+
+    void setMasterOutputRouteR(int bufferIndex) noexcept { m_masterOutputRouteR.store(bufferIndex, std::memory_order_relaxed); }
+    [[nodiscard]] int getMasterOutputRouteR() const noexcept { return m_masterOutputRouteR.load(std::memory_order_relaxed); }
+
+    void setDefaultsForDiscoveredChannels(int numInputs, int numOutputs) noexcept;
+
     // Diagnostic Realtime Telemetry (calculated directly from realtime buffers)
     [[nodiscard]] float getRawInputPeakCh1() const noexcept { return m_rawInputPeakCh1.load(std::memory_order_relaxed); }
     [[nodiscard]] float getRawInputPeakCh2() const noexcept { return m_rawInputPeakCh2.load(std::memory_order_relaxed); }
@@ -86,6 +107,14 @@ private:
     MixerChannel m_ch1;
     MixerChannel m_ch2;
     StereoMixerChannel m_ch34;
+
+    // Routing Configuration (Buffer index mapped to driver channel, -1 = disabled)
+    std::atomic<int> m_ch1InputRoute{0};
+    std::atomic<int> m_ch2InputRoute{1};
+    std::atomic<int> m_ch34InputRouteL{2};
+    std::atomic<int> m_ch34InputRouteR{3};
+    std::atomic<int> m_masterOutputRouteL{0};
+    std::atomic<int> m_masterOutputRouteR{1};
 
     // Master Section Parameters
     std::atomic<float> m_masterFaderDb{0.0f};

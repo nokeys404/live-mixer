@@ -2,6 +2,7 @@
 
 #include "../core/AudioConfig.h"
 #include "../core/AudioState.h"
+#include "AudioChannelDescriptor.h"
 #include <string>
 #include <vector>
 #include <memory>
@@ -103,6 +104,8 @@ public:
     virtual uint32_t getCurrentBufferSize() const noexcept = 0;
     virtual uint32_t getInputChannelCount() const noexcept = 0;
     virtual uint32_t getOutputChannelCount() const noexcept = 0;
+    virtual std::vector<AudioChannelInfo> getDiscoveredInputChannels() const = 0;
+    virtual std::vector<AudioChannelInfo> getDiscoveredOutputChannels() const = 0;
 
     // Latency & buffer specs
     virtual double getBufferDurationMs() const noexcept = 0;
